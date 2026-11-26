@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { imageResources, ensureDockerRuntime } from "../lib/dockerResources";
   import { onMount } from "svelte";
-  import { dockerApi, sysMethods } from "../lib/api";
+  import { dockerApi } from "../lib/api";
   import { globalToast } from "../lib/globalToast";
   import { dockerState } from "../store.svelte";
   import * as Icons from "../components/Icons.svelte";
@@ -23,24 +24,14 @@
   let selected = $state<Set<string>>(new Set());
   let batchLoading = $state(false);
   let confirm = $state<{ title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void; onCancel?: () => void } | null>(null);
-  let runtimeName = $state("docker");
   /** Which transfer dialog is open, if any. Export carries the current selection. */
   let transfer = $state<{ mode: TransferMode; images: string[] } | null>(null);
 
   
 
-  async function refreshImages() {
-    try {
-      const list = await dockerApi.listImages();
-      dockerState.images = list;
-    } catch {
-      dockerState.images = [];
-    }
-  }
-
   onMount(() => {
-    refreshImages();
-    sysMethods.getRuntimeInfo().then(r => runtimeName = r).catch(() => {});
+    imageResources.ensure();
+    ensureDockerRuntime();
 
     const aiListener = async (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -84,7 +75,7 @@
     try {
       await dockerApi.pullImage(name);
       globalToast("success", `Image "${name}" pulled successfully`);
-      refreshImages();
+      imageResources.afterChange();
     } catch (e) {
       globalToast("error", `Pull failed: ${e}`);
       throw e;
@@ -130,7 +121,7 @@
       throw e;
     } finally {
       actionLoading = null;
-      refreshImages();
+      imageResources.afterChange();
     }
   }
 
@@ -149,7 +140,7 @@
           globalToast("error", String(e));
         } finally {
           actionLoading = null;
-          refreshImages();
+          imageResources.afterChange();
         }
       },
       onCancel: () => { confirm = null; }
@@ -175,7 +166,7 @@
       globalToast("success", `Image tagged as "${tagTarget}"`);
       showTag = null;
       tagTarget = "";
-      refreshImages();
+      imageResources.afterChange();
     } catch (e) {
       globalToast("error", String(e));
     } finally {
@@ -200,7 +191,7 @@
         globalToast("success", `Removed ${ok_count} image(s)`);
         selected = new Set();
         batchLoading = false;
-        refreshImages();
+        imageResources.afterChange();
       },
       onCancel: () => { confirm = null; }
     };
@@ -260,11 +251,11 @@
     <span style="font-size: var(--text-sm); color: var(--text-muted); font-weight: 400; margin-left: 12px;" title={`${dockerState.images.length} ${t('images.count', { default: 'images' })} · ${totalSize > 1024 ? `${(totalSize / 1024).toFixed(1)} GB` : `${totalSize.toFixed(0)} MB`}`}>
       {dockerState.images.length} {t('images.count', { default: 'images' })} · {totalSize > 1024 ? `${(totalSize / 1024).toFixed(1)} GB` : `${totalSize.toFixed(0)} MB`}
     </span>
-    {#if runtimeName}
+    {#if dockerState.runtimeName}
       <span class="header-badge" style="font-size: var(--text-xs); background: var(--bg-secondary); border: 1px solid var(--border-primary); padding: 2px 8px; border-radius: 12px; margin-left: 12px; color: var(--text-muted);">
-        {#if runtimeName === "podman"}
+        {#if dockerState.runtimeName === "podman"}
           🦭 Podman
-        {:else if runtimeName === "containerd"}
+        {:else if dockerState.runtimeName === "containerd"}
           📦 Containerd
         {:else}
           {@html Icons.Docker} Docker

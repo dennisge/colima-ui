@@ -494,13 +494,6 @@
     }
   }
 
-  function handleUseOllama() {
-    activateProvider("ollama-local");
-    setProviderField("ollama-local", "model", "llama3.2");
-    void setAppSetting("ai_provider", "ollama-local");
-    void setAppSetting("ai_model", "llama3.2");
-  }
-
   let detectedSystemError = $state<string | null>(null);
 
   function handleDiagnoseError() {
@@ -880,7 +873,6 @@
           {isConfigured}
           onSelectPrompt={(p) => handleSend(p)}
           onInsertPrompt={handleInsert}
-          onUseOllama={handleUseOllama}
           onOpenSettings={() => openSettingsSection("ai")}
         />
       {/if}
@@ -1891,6 +1883,19 @@
     width: 22px;
     height: 22px;
     color: var(--bg-app);
+  }
+
+  :global(:root[data-theme="light"]) .ai-bubble-trigger {
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+    box-shadow: var(--shadow-sm);
+  }
+  :global(:root[data-theme="light"]) .ai-bubble-trigger:hover {
+    background: var(--bg-card-hover);
+    transform: none;
+  }
+  :global(:root[data-theme="light"]) .ai-bubble-trigger svg {
+    color: var(--text-primary);
   }
 
   .ai-bubble-badge {

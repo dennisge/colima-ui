@@ -1,7 +1,7 @@
 //! SSE (Server-Sent Events) broadcast infrastructure.
 //!
 //! Provides a pub/sub channel for pushing real-time updates to browser clients,
-//! plus background watchers for Docker events and instance state changes.
+//! plus a background publisher for instance state changes.
 //!
 //! # This is a display channel, not a durable one
 //!
@@ -137,70 +137,6 @@ pub fn emit_all(event_type: &str, data: &serde_json::Value) {
     publish_sse_event(event_type, data);
 }
 
-// ===== Background Watchers =====
-
-/// Push Docker state to SSE clients whenever it changes.
-///
-/// # It no longer opens its own event stream
-///
-/// It used to, which cost two things. Docker was asked to duplicate the same
-/// event stream for two consumers in one process; and this copy had no reconnect
-/// — a single stream error `break`s the loop, and the watcher was gone until the
-/// app restarted. Since a stopped colima ends the stream, *"restart the VM"* left
-/// browser-mode clients silently frozen with stale data.
-///
-/// Now it consumes [`crate::docker_events`], whose producer is the Tauri watcher
-/// — the one that already owns the connection, the liveness ping and the
-/// reconnect loop. Recovery comes for free, and there is one event stream in the
-/// process rather than two.
-///
-/// The 500 ms trailing-edge debounce stays here, on the consumer side. That is
-/// the point of the split: this watcher wants settled state and smooths the
-/// burst, while consumers that need to count events read them unaggregated.
-pub async fn sse_docker_watcher() {
-    use tokio::sync::broadcast::error::RecvError;
-
-    let mut events = crate::docker_events::subscribe();
-    let debounce = std::time::Duration::from_millis(500);
-
-    // Initial push, so a client connecting before anything happens still sees
-    // the current state instead of an empty screen.
-    if let Some(data) = fetch_current_docker_state().await {
-        publish_sse_event("docker-state-updated", &data);
-    }
-
-    loop {
-        match events.recv().await {
-            Ok(_) => {}
-            // Fell behind a burst. The refresh below reads current state anyway,
-            // so the skipped events cost nothing here — this consumer never
-            // needed them individually.
-            Err(RecvError::Lagged(_)) => {}
-            // The producer is a `OnceLock` static that lives for the process, so
-            // this is unreachable in practice; treat it as "stop" rather than
-            // spinning on a closed channel.
-            Err(RecvError::Closed) => return,
-        }
-
-        // Trailing edge: keep swallowing events until 500 ms of quiet, then read
-        // the settled state once.
-        //
-        // Matching the inner result rather than `is_ok()`: a closed channel
-        // returns instantly and `Ok(Err(Closed))` *is* `is_ok()`, so the loop
-        // would spin at full CPU. Unreachable while the producer is a static
-        // that outlives the process, which is exactly why it would be missed.
-        // Continues on a delivered event or a lag; stops on `Closed` (producer
-        // gone) and on the timeout (the window elapsed).
-        while let Ok(Ok(_)) | Ok(Err(RecvError::Lagged(_))) =
-            tokio::time::timeout(debounce, events.recv()).await
-        {}
-
-        if let Some(data) = fetch_current_docker_state().await {
-            publish_sse_event("docker-state-updated", &data);
-        }
-    }
-}
-
 /// Connect and read current state.
 ///
 /// Uses `docker_state::connect_bollard` rather than a private copy. The private
@@ -209,9 +145,8 @@ pub async fn sse_docker_watcher() {
 /// showed nothing — two connection helpers that disagree is a bug waiting to be
 /// written, so there is one.
 ///
-/// A fresh client per refresh, rather than one held for the life of the watcher:
-/// the socket path changes when colima is recreated, so a cached client outlives
-/// the socket it points at. This runs at most once per debounce window.
+/// The shared Docker watcher publishes updates from its own cache. This
+/// function takes an explicit snapshot for callers outside that watcher.
 pub async fn fetch_current_docker_state() -> Option<serde_json::Value> {
     let docker = crate::docker_state::connect_bollard()?;
     fetch_docker_state(&docker).await
@@ -251,6 +186,8 @@ pub(crate) async fn fetch_docker_state(docker: &bollard::Docker) -> Option<serde
         "images": mapped_images
     }))
 }
+
+// ===== Background Watchers =====
 
 /// Periodically publish instance state to SSE clients
 pub async fn sse_instance_publisher() {

@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { volumeResources, ensureDockerRuntime } from "../lib/dockerResources";
   import { onMount } from "svelte";
-  import { volumesApi, sysMethods } from "../lib/api";
+  import { volumesApi } from "../lib/api";
   import { globalToast } from "../lib/globalToast";
   import { t } from "../lib/i18n.svelte";
-  import { resourceState } from "../store.svelte";
+  import { dockerState, resourceState } from "../store.svelte";
   import * as Icons from "../components/Icons.svelte";
   import RowActions from "../components/RowActions.svelte";
   import { formatVolumeName } from "../lib/formatters";
@@ -20,22 +21,10 @@
   let selected = $state<Set<string>>(new Set());
   let batchLoading = $state(false);
   let confirm = $state<{ title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void; onCancel?: () => void } | null>(null);
-  let runtimeName = $state("docker");
-
-  async function refreshVolumes() {
-    try {
-      const list = await volumesApi.listVolumes();
-      resourceState.volumes = list;
-    } catch {
-      resourceState.volumes = [];
-    } finally {
-      resourceState.volumesLoading = false;
-    }
-  }
 
   onMount(() => {
-    refreshVolumes();
-    sysMethods.getRuntimeInfo().then(r => runtimeName = r).catch(() => {});
+    volumeResources.ensure();
+    ensureDockerRuntime();
 
     const aiListener = async (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -70,7 +59,7 @@
       globalToast("success", `Volume "${newName}" created`);
       newName = "";
       showCreate = false;
-      refreshVolumes();
+      volumeResources.afterChange();
     } catch (e) {
       globalToast("error", String(e));
     } finally {
@@ -100,7 +89,7 @@
       await volumesApi.removeVolume(name, true);
       selected = new Set();
       globalToast("success", `Volume "${name}" removed`);
-      refreshVolumes();
+      volumeResources.afterChange();
     } catch (e) {
       globalToast("error", String(e));
       throw e;
@@ -120,7 +109,7 @@
           await volumesApi.pruneVolumes();
           selected = new Set();
           globalToast("success", "Unused volumes pruned");
-          refreshVolumes();
+          volumeResources.afterChange();
         } catch (e) {
           globalToast("error", String(e));
         } finally {
@@ -163,7 +152,7 @@
         globalToast("success", `Removed ${ok_count} volume(s)`);
         selected = new Set();
         batchLoading = false;
-        refreshVolumes();
+        volumeResources.afterChange();
       },
       onCancel: () => { confirm = null; }
     };
@@ -189,11 +178,11 @@
     <span style="font-size: var(--text-sm); color: var(--text-muted); font-weight: 400; margin-left: 12px;">
       {resourceState.volumes.length} {t('volumes.count_label', { default: 'volume(s)' })}
     </span>
-    {#if runtimeName}
+    {#if dockerState.runtimeName}
       <span style="font-size: var(--text-xs); background: var(--bg-secondary); border: 1px solid var(--border-primary); padding: 2px 8px; border-radius: 12px; margin-left: 12px; color: var(--text-muted);">
-        {#if runtimeName === "podman"}
+        {#if dockerState.runtimeName === "podman"}
           🦭 Podman
-        {:else if runtimeName === "containerd"}
+        {:else if dockerState.runtimeName === "containerd"}
           📦 Containerd
         {:else}
           {@html Icons.Docker} Docker
@@ -213,7 +202,7 @@
     <button class="btn btn-primary" onclick={() => showCreate = !showCreate}>
       + {t('volumes.create_button', { default: 'Create Volume' })}
     </button>
-    <button class="btn btn-ghost" onclick={refreshVolumes}>↻ {t('volumes.refresh', { default: 'Refresh' })}</button>
+    <button class="btn btn-ghost" onclick={volumeResources.refresh}>↻ {t('volumes.refresh', { default: 'Refresh' })}</button>
   </div>
 </div>
 

@@ -29,6 +29,7 @@ vi.mock("../lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/api")>();
   return {
     ...actual,
+    settingsApi: { ...actual.settingsApi, set: vi.fn().mockResolvedValue(undefined) },
     aiApi: {
       ...actual.aiApi,
       saveMessage: vi.fn().mockResolvedValue(undefined),
@@ -82,6 +83,20 @@ describe("AiChatPanel.svelte Integration", () => {
   it("1. renders AiEmptyState when chat messages list is empty", () => {
     render(AiChatPanel);
     expect(screen.getByText(/Hi! I'm your Colima AI Assistant/i)).toBeInTheDocument();
+  });
+
+  it("opens from Settings with one resource optimization prompt", async () => {
+    uiState.currentPage = "settings";
+    uiState.aiPanelOpen = false;
+    aiState.isOpen = false;
+    try {
+      render(AiChatPanel);
+      await fireEvent.click(screen.getByRole("button", { name: "Open Colima AI" }));
+      expect(screen.getAllByText("Optimize VM resources")).toHaveLength(1);
+    } finally {
+      uiState.currentPage = "dashboard";
+      aiState.isOpen = false;
+    }
   });
 
   it("2. renders message turns and mounts AiMessageBody for assistant", () => {

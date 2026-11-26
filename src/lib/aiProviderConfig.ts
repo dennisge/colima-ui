@@ -13,15 +13,8 @@ export interface AiProvider {
   needsKey: boolean;
   needsEndpoint: boolean;
   endpointPlaceholder?: string;
-  /** Known gateways, offered as one-click endpoint fills. */
-  presets?: AiProviderPreset[];
   /** How this provider names its models, shown under the model field. */
   modelHint?: string;
-}
-
-export interface AiProviderPreset {
-  label: string;
-  endpoint: string;
 }
 
 /**
@@ -73,20 +66,11 @@ export const AI_PROVIDERS: AiProvider[] = [
   { id: "gemini", label: "Google Gemini", needsKey: true, needsEndpoint: false },
   {
     id: "openai-compatible",
-    label: "OpenAI-compatible proxy (LiteLLM, 9router, OpenRouter…)",
+    label: "OpenAI-compatible proxy",
     needsKey: true,
     needsEndpoint: true,
     endpointPlaceholder: "http://localhost:4000/v1",
-    // A proxy fronts many vendors, so it namespaces what it serves. Users who
-    // type a bare `gpt-4o` at a LiteLLM get a 404 with no hint why.
-    modelHint: "Proxies namespace their models — e.g. openai/gpt-4o, nvidia_nim/llama3, ollama/gemma3. Refresh to list what yours serves.",
-    presets: [
-      { label: "LiteLLM", endpoint: "http://localhost:4000/v1" },
-      { label: "9router", endpoint: "http://localhost:20128/v1" },
-      { label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1" },
-      { label: "Groq", endpoint: "https://api.groq.com/openai/v1" },
-      { label: "vLLM / LM Studio", endpoint: "http://localhost:1234/v1" },
-    ],
+    modelHint: "Use the full model identifier reported by your proxy. Refresh to list available models.",
   },
   { id: "ollama-local", label: "Ollama Local", needsKey: false, needsEndpoint: false },
   {
@@ -94,15 +78,11 @@ export const AI_PROVIDERS: AiProvider[] = [
     label: "Ollama Cloud / remote host",
     needsKey: true,
     needsEndpoint: true,
-    endpointPlaceholder: "https://ollama.com",
+    endpointPlaceholder: "https://your-host.example",
     // Ollama's docs name the same model differently by route: pulled through a
     // local host it carries a -cloud suffix, called directly on ollama.com it
     // does not (`gpt-oss:120b-cloud` vs `gpt-oss:120b`).
-    modelHint: "Host only — the /api/… path is added for you. On ollama.com use the plain name (gpt-oss:120b); a local host uses the -cloud suffix.",
-    presets: [
-      { label: "Ollama Cloud", endpoint: "https://ollama.com" },
-      { label: "Remote host", endpoint: "http://192.168.1.10:11434" },
-    ],
+    modelHint: "Enter the host URL. The client adds the API path automatically.",
   },
 ];
 

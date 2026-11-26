@@ -232,14 +232,6 @@
     <div class="form-group">
       <label class="form-label" for="aiEndpoint">Endpoint URL</label>
       <input id="aiEndpoint" type="text" bind:value={aiEndpoint} placeholder={providerSpec.endpointPlaceholder ?? ""} class="input mono" />
-      {#if providerSpec.presets}
-        <div class="preset-row">
-          <span class="field-note">Presets:</span>
-          {#each providerSpec.presets as preset (preset.label)}
-            <button class="preset-chip" onclick={() => (aiEndpoint = preset.endpoint)}>{preset.label}</button>
-          {/each}
-        </div>
-      {/if}
     </div>
   {/if}
 
@@ -416,29 +408,6 @@
     background: var(--bg-secondary);
     padding: 1px 5px;
     border-radius: var(--radius-sm);
-  }
-
-  .preset-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: 2px;
-  }
-
-  .preset-chip {
-    padding: 2px 8px;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    background: var(--surface-inset);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-  }
-
-  .preset-chip:hover {
-    color: var(--text-primary);
-    border-color: var(--border-primary);
   }
 
   .action-row {

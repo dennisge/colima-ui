@@ -13,24 +13,20 @@ describe("AiEmptyState.svelte", () => {
     expect(screen.getByText(/I can control containers, troubleshoot issues/i)).toBeInTheDocument();
   });
 
-  it("renders onboarding card when isConfigured is false and handles action buttons", async () => {
-    const onUseOllama = vi.fn();
+  it("renders a provider-neutral setup prompt and opens settings", async () => {
     const onOpenSettings = vi.fn();
 
     render(AiEmptyState, {
       isConfigured: false,
-      onUseOllama,
       onOpenSettings,
     });
 
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByText("AI Provider Not Configured")).toBeInTheDocument();
 
-    const ollamaBtn = screen.getByRole("button", { name: /use local ollama/i });
+    expect(screen.getByRole("alert")).toHaveTextContent("Configure a provider and model in Settings to start.");
+    expect(screen.queryByRole("button", { name: /use local ollama/i })).toBeNull();
     const settingsBtn = screen.getByRole("button", { name: /configure provider/i });
-
-    await fireEvent.click(ollamaBtn);
-    expect(onUseOllama).toHaveBeenCalledTimes(1);
 
     await fireEvent.click(settingsBtn);
     expect(onOpenSettings).toHaveBeenCalledTimes(1);

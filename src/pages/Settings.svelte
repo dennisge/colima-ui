@@ -2,6 +2,7 @@
   /* global __APP_VERSION__:readonly */
   import { type SystemInfo } from "../lib/api";
   import { setLanguage, getLanguage, t } from "../lib/i18n.svelte";
+  import { APP_THEME_SETTING, getAppSetting, setAppSetting } from "../lib/settingsStore.svelte";
   import AIPanelSettings from "../components/settings/AIPanelSettings.svelte";
   import PrivacySettings from "../components/settings/PrivacySettings.svelte";
   import SettingsSection from "../components/settings/SettingsSection.svelte";
@@ -49,6 +50,18 @@
             <option value="ja">日本語</option>
           </select>
         </div>
+        <label style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-weight: 500;">{t("settings.theme", { default: "Theme" })}</span>
+          <select
+            class="input select"
+            style="width: 200px;"
+            value={getAppSetting(APP_THEME_SETTING) === "light" ? "light" : "dark"}
+            onchange={(event) => setAppSetting(APP_THEME_SETTING, event.currentTarget.value)}
+          >
+            <option value="light">{t("settings.theme_light", { default: "Light" })}</option>
+            <option value="dark">{t("settings.theme_dark", { default: "Dark" })}</option>
+          </select>
+        </label>
       </div>
     </SettingsSection>
 

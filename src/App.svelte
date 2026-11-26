@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { uiState, dashboardState, isValidPage } from "./store.svelte";
-  import { appState, loadAllSettings, getAppSetting, setAppSetting } from "./lib/settingsStore.svelte";
+  import { APP_THEME_SETTING, appState, loadAllSettings, getAppSetting, setAppSetting } from "./lib/settingsStore.svelte";
   import { startDataPoller, refreshManual } from "./lib/dataPoller";
   import { handleGlobalKeydown } from "./lib/keyboardShortcuts";
   import { startTransferNotifications } from "./lib/transferNotifications";
@@ -44,6 +44,10 @@
   import { isRunningInTauri } from "./lib/env";
 
   let isTauri = $state(isRunningInTauri());
+
+  $effect(() => {
+    document.documentElement.dataset.theme = getAppSetting(APP_THEME_SETTING) === "light" ? "light" : "dark";
+  });
 
   // Tauri 2's reliable window drag is the data-tauri-drag-region attribute;
   // plain -webkit-app-region CSS is unreliable in macOS WKWebView with an

@@ -132,25 +132,12 @@ describe("normalizeOllamaBaseUrl", () => {
   });
 });
 
-describe("proxy presets", () => {
-  it("offers the documented gateways under openai-compatible", () => {
-    const spec = findProvider("openai-compatible");
-    const labels = spec?.presets?.map((p) => p.label) ?? [];
-    expect(labels).toContain("LiteLLM");
-    expect(labels).toContain("9router");
-    // Every preset must already be in normal form, or picking one and saving
-    // would rewrite the field under the user.
-    for (const preset of spec?.presets ?? []) {
-      expect(normalizeOpenAiBaseUrl(preset.endpoint)).toBe(preset.endpoint);
-    }
-  });
-
-  it("offers a real host for Ollama Cloud, already in normal form", () => {
-    const spec = findProvider("ollama-cloud");
-    const endpoints = spec?.presets?.map((p) => p.endpoint) ?? [];
-    expect(endpoints).toContain("https://ollama.com");
-    for (const endpoint of endpoints) {
-      expect(normalizeOllamaBaseUrl(endpoint)).toBe(endpoint);
+describe("manual endpoint configuration", () => {
+  it("keeps custom proxy and remote Ollama endpoints configurable without presets", () => {
+    for (const id of ["openai-compatible", "ollama-cloud"]) {
+      const provider = findProvider(id);
+      expect(provider?.needsEndpoint).toBe(true);
+      expect(provider).not.toHaveProperty("presets");
     }
   });
 });

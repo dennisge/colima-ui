@@ -14,6 +14,12 @@ const listImages = vi.fn();
 const listVolumes = vi.fn();
 const listNetworks = vi.fn();
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 /** Instances handed out by the module under test, so a test can assert on them. */
 const eventSources: FakeEventSource[] = [];
 
@@ -44,6 +50,7 @@ vi.mock("./api", () => ({
   networksApi: { listNetworks: (...a: unknown[]) => listNetworks(...a) },
   sysMethods: {
     checkSystem: vi.fn().mockResolvedValue({}),
+    getRuntimeInfo: vi.fn().mockResolvedValue("docker"),
     setResourceSaver: vi.fn().mockResolvedValue(undefined),
   },
   getApiToken: vi.fn().mockResolvedValue("t"),
@@ -104,10 +111,10 @@ beforeEach(() => {
   tauriUnlisteners.length = 0;
   eventSources.length = 0;
   vi.stubGlobal("EventSource", FakeEventSource as unknown as typeof EventSource);
-  listContainers.mockResolvedValue([]);
-  listImages.mockResolvedValue([]);
-  listVolumes.mockResolvedValue([]);
-  listNetworks.mockResolvedValue([]);
+  listContainers.mockReset().mockResolvedValue([]);
+  listImages.mockReset().mockResolvedValue([]);
+  listVolumes.mockReset().mockResolvedValue([]);
+  listNetworks.mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -198,24 +205,116 @@ describe("teardown", () => {
   });
 });
 
+describe("resource reuse and event ordering", () => {
+  it("shares an in-flight full refresh and reuses warm snapshots on page entry", async () => {
+    const { refetchAllResources } = await import("./dataPoller");
+    const { containerResources, imageResources } = await import("./dockerResources");
+    const first = refetchAllResources();
+    expect(refetchAllResources()).toBe(first);
+    await Promise.all([first, containerResources.ensure(), imageResources.ensure()]);
+    await Promise.all([containerResources.ensure(), imageResources.ensure()]);
+
+    expect(listContainers).toHaveBeenCalledTimes(1);
+    expect(listImages).toHaveBeenCalledTimes(1);
+    expect(listVolumes).toHaveBeenCalledTimes(1);
+    expect(listNetworks).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies only the indicated resource and ignores an older list response", async () => {
+    runInTauri = true;
+    const { startDataPoller } = await import("./dataPoller");
+    const { containerResources } = await import("./dockerResources");
+    const { dockerState } = await import("../store.svelte");
+    listImages.mockResolvedValue([{ Id: "current-image" }]);
+    const stop = startDataPoller();
+    await vi.runOnlyPendingTimersAsync();
+
+    const old = deferred<{ Id: string }[]>();
+    listContainers.mockReturnValueOnce(old.promise);
+    const reading = containerResources.refresh();
+    const receive = tauriListeners.get("docker-state-updated")!;
+    receive({ payload: {
+      containers: [{ Id: "current-container" }],
+      images: [{ Id: "older-image" }],
+      changed: ["containers"],
+    } });
+    old.resolve([{ Id: "older-container" }]);
+    await reading;
+
+    expect(dockerState.containers).toEqual([{ Id: "current-container" }]);
+    expect(dockerState.images).toEqual([{ Id: "current-image" }]);
+    expect(listVolumes).toHaveBeenCalledTimes(1);
+    expect(listNetworks).toHaveBeenCalledTimes(1);
+
+    receive({ payload: { changed: ["networks"] } });
+    await vi.runOnlyPendingTimersAsync();
+    expect(listNetworks).toHaveBeenCalledTimes(2);
+    expect(listVolumes).toHaveBeenCalledTimes(1);
+    expect(listImages).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("discards replies from before disconnect and repopulates the lists after reconnect", async () => {
+    runInTauri = true;
+    const { startDataPoller, refetchAllResources } = await import("./dataPoller");
+    const { dockerState } = await import("../store.svelte");
+    const stop = startDataPoller();
+    await vi.runOnlyPendingTimersAsync();
+
+    const old = deferred<{ Id: string }[]>();
+    listContainers.mockReturnValueOnce(old.promise);
+    const reading = refetchAllResources();
+    tauriListeners.get("docker-connection-lost")!({ payload: {} });
+    tauriListeners.get("docker-state-updated")!({ payload: {
+      containers: [{ Id: "old-event" }], changed: ["containers"],
+    } });
+    old.resolve([{ Id: "old-connection" }]);
+    await reading;
+    expect(dockerState.containers).toEqual([]);
+    expect(dockerState.loading).toBe(true);
+
+    listContainers.mockResolvedValue([{ Id: "new-connection" }]);
+    tauriListeners.get("docker-reconnected")!({ payload: {} });
+    await vi.runOnlyPendingTimersAsync();
+    expect(dockerState.containers).toEqual([{ Id: "new-connection" }]);
+    expect(dockerState.loading).toBe(false);
+    stop();
+  });
+
+  it("refreshes again after a local change crosses an in-flight read", async () => {
+    const { imageResources } = await import("./dockerResources");
+    const { dockerState } = await import("../store.svelte");
+    const old = deferred<{ Id: string }[]>();
+    listImages.mockReturnValueOnce(old.promise);
+    const reading = imageResources.refresh();
+
+    listImages.mockResolvedValue([{ Id: "after-change" }]);
+    await imageResources.afterChange();
+    old.resolve([{ Id: "before-change" }]);
+    await reading;
+
+    expect(dockerState.images).toEqual([{ Id: "after-change" }]);
+    expect(listImages).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("disconnect error handling and backoff", () => {
-  it("clears dockerState.containers and triggers refreshManual when listContainers fails", async () => {
+  it("keeps the last good containers and applies images independently on a read failure", async () => {
     const { colimaApi } = await import("./api");
     const { dockerState } = await import("../store.svelte");
     const { refetchAllResources } = await import("./dataPoller");
 
-    // Populate with existing container
-    dockerState.containers = [{ Id: "c-active", Names: "web" } as unknown as (typeof dockerState.containers)[number]];
-    expect(dockerState.containers.length).toBe(1);
-
-
+    const existing = [{ Id: "c-active", Names: "web" }];
+    listContainers.mockResolvedValueOnce(existing);
+    await refetchAllResources();
     vi.mocked(colimaApi.listInstances).mockClear();
     listContainers.mockRejectedValue(new Error("Cannot connect to Docker daemon"));
+    listImages.mockResolvedValue([{ Id: "i-new" }]);
 
     await refetchAllResources();
 
-    // Verify containers are cleared on connection failure
-    expect(dockerState.containers).toEqual([]);
+    expect(dockerState.containers).toEqual(existing);
+    expect(dockerState.images).toEqual([{ Id: "i-new" }]);
     // Verify refreshManual was called (which invokes colimaApi.listInstances)
     expect(colimaApi.listInstances).toHaveBeenCalled();
   });

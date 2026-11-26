@@ -7,7 +7,6 @@
     isConfigured?: boolean;
     onSelectPrompt?: (prompt: string) => void;
     onInsertPrompt?: (prompt: string) => void;
-    onUseOllama?: () => void;
     onOpenSettings?: () => void;
   }
 
@@ -16,7 +15,6 @@
     isConfigured = true,
     onSelectPrompt,
     onInsertPrompt,
-    onUseOllama,
     onOpenSettings,
   }: Props = $props();
 
@@ -84,12 +82,9 @@
         <span class="ai-onboarding-title">{tr("ai.onboarding_title", "AI Provider Not Configured")}</span>
       </div>
       <p class="ai-onboarding-desc">
-        {tr("ai.onboarding_desc", "Connect to a local Ollama instance without API keys, or configure Claude, OpenAI, or Gemini in Settings to start.")}
+        {tr("ai.onboarding_desc", "Configure a provider and model in Settings to start.")}
       </p>
       <div class="ai-onboarding-actions">
-        <button type="button" class="btn-primary-action" onclick={() => onUseOllama?.()}>
-          {tr("ai.use_local_ollama", "Use Local Ollama")}
-        </button>
         <button type="button" class="btn-secondary-action" onclick={() => onOpenSettings?.()}>
           {tr("ai.configure_provider", "Configure Provider")}
         </button>
@@ -260,22 +255,6 @@
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
-  }
-
-  .btn-primary-action {
-    background: var(--accent-blue);
-    color: var(--bg-app);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 6px 12px;
-    font-size: var(--text-xs);
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity var(--transition-fast);
-  }
-
-  .btn-primary-action:hover {
-    opacity: 0.9;
   }
 
   .btn-secondary-action {

@@ -1,7 +1,10 @@
+use bollard::models::{EventMessage, EventMessageTypeEnum};
 use bollard::query_parameters::{EventsOptions, ListContainersOptions, ListImagesOptions};
 use bollard::Docker;
 use futures_util::stream::StreamExt;
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
+use tokio::time::Instant;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
@@ -239,10 +242,12 @@ pub async fn start_docker_watcher(app: AppHandle, state: Arc<RwLock<DockerState>
         // container events, and a recovery produces none: after a VM restart
         // with nothing running there is simply nothing to report, so a client
         // that only reacts to events would sit on pre-outage data forever.
-        if let Ok(data) = update_cache(&docker, &state).await {
-            crate::sse::publish_sse_event("docker-state-updated", &data);
-            let _ = app.emit("docker-state-updated", data);
-        }
+        let mut pending = ResourceChanges {
+            containers: true,
+            images: true,
+            ..Default::default()
+        };
+        publish_changes(&docker, &state, &mut pending).await;
         // Notify frontend of reconnection so it can refetch volumes/networks/compose
         crate::sse::publish_sse_event("docker-reconnected", &serde_json::json!({}));
         let _ = app.emit("docker-reconnected", serde_json::json!({}));
@@ -258,7 +263,8 @@ pub async fn start_docker_watcher(app: AppHandle, state: Arc<RwLock<DockerState>
         // refreshing. This ensures we always capture the FINAL state, not an
         // intermediate transition state.
         let mut stream = docker.events(Some(EventsOptions::default()));
-        let debounce_ms: u64 = 500; // wait 500ms after last event before fetching
+        let quiet_period = Duration::from_millis(500);
+        let max_batch_delay = Duration::from_millis(1500);
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(5));
         heartbeat.tick().await; // Consume initial immediate tick
 
@@ -280,6 +286,10 @@ pub async fn start_docker_watcher(app: AppHandle, state: Arc<RwLock<DockerState>
                         connection_lost_reason = Some(reason);
                         break;
                     }
+                    // Retry a resource that failed independently of its peers.
+                    if pending.has_changes() {
+                        publish_changes(&docker, &state, &mut pending).await;
+                    }
                     continue;
                 }
                 ev = stream.next() => ev,
@@ -287,60 +297,37 @@ pub async fn start_docker_watcher(app: AppHandle, state: Arc<RwLock<DockerState>
 
             match event {
                 Some(Ok(ev)) => {
-                    // Fork before debouncing. This watcher only needs "something
-                    // changed", but the events themselves carry information the
-                    // debounce is about to destroy — five restarts in ten seconds
-                    // collapse into one refresh here, and a crash-loop rule reading
-                    // only this path would never see the loop. See `docker_events`.
-                    if let Some(e) = crate::docker_events::from_bollard(&ev) {
-                        crate::docker_events::publish(e);
+                    if !pending.record(&ev) {
+                        continue;
                     }
 
-                    // Event received — now drain any further events within the debounce window
-                    // (trailing-edge: keep resetting the timer while events keep coming)
+                    let batch_deadline = Instant::now() + max_batch_delay;
+                    let mut deadline = Instant::now() + quiet_period;
                     loop {
-                        match tokio::time::timeout(
-                            std::time::Duration::from_millis(debounce_ms),
-                            stream.next(),
-                        )
-                        .await
-                        {
+                        match tokio::time::timeout_at(deadline.min(batch_deadline), stream.next()).await {
                             Ok(Some(Ok(ev))) => {
-                                // Drained for this watcher's purposes, but still
-                                // published: these are exactly the events a burst
-                                // is made of, and they are the ones that matter to
-                                // anything counting.
-                                if let Some(e) = crate::docker_events::from_bollard(&ev) {
-                                    crate::docker_events::publish(e);
+                                if pending.record(&ev) {
+                                    deadline = Instant::now() + quiet_period;
                                 }
-                                // Another event within the window — keep draining
-                                continue;
+                                if Instant::now() >= batch_deadline {
+                                    break;
+                                }
                             }
                             Ok(Some(Err(e))) => {
-                                // Stream error during drain — break to outer error handling
                                 connection_lost_reason = Some(format!("event stream error during drain: {}", e));
                                 break;
                             }
                             Ok(None) => {
-                                // Stream ended during drain
                                 connection_lost_reason = Some("event stream ended during drain".to_string());
                                 break;
                             }
-                            Err(_) => {
-                                // Timeout — debounce window elapsed with no new events.
-                                // NOW fetch the final state.
-                                break;
-                            }
+                            Err(_) => break,
                         }
                     }
                     if connection_lost_reason.is_some() {
                         break;
                     }
-                    // Fetch and emit the settled state to BOTH Tauri IPC and SSE
-                    if let Ok(data) = update_cache(&docker, &state).await {
-                        crate::sse::publish_sse_event("docker-state-updated", &data);
-                        let _ = app.emit("docker-state-updated", data);
-                    }
+                    publish_changes(&docker, &state, &mut pending).await;
                 }
                 Some(Err(e)) => {
                     // Event stream error — break to reconnect logic
@@ -485,64 +472,148 @@ pub fn map_images(images: &[bollard::models::ImageSummary]) -> Vec<serde_json::V
     mapped
 }
 
-pub(crate) async fn update_cache(
+#[derive(Default)]
+struct ResourceChanges {
+    containers: bool,
+    images: bool,
+    volumes: bool,
+    networks: bool,
+}
+
+impl ResourceChanges {
+    fn record(&mut self, event: &EventMessage) -> bool {
+        // Preserve the raw lifecycle stream independently of UI batching.
+        if let Some(event) = crate::docker_events::from_bollard(event) {
+            crate::docker_events::publish(event);
+        }
+        let action = event.action.as_deref().unwrap_or_default();
+        let changed = match event.typ {
+            Some(EventMessageTypeEnum::CONTAINER)
+                if !action.starts_with("exec_")
+                    && !matches!(action, "attach" | "detach" | "resize" | "top") =>
+            {
+                &mut self.containers
+            }
+            Some(EventMessageTypeEnum::IMAGE) => &mut self.images,
+            Some(EventMessageTypeEnum::VOLUME) if !matches!(action, "mount" | "unmount") => {
+                &mut self.volumes
+            }
+            Some(EventMessageTypeEnum::NETWORK) if !matches!(action, "connect" | "disconnect") => {
+                &mut self.networks
+            }
+            _ => return false,
+        };
+        *changed = true;
+        true
+    }
+
+    fn has_changes(&self) -> bool {
+        self.containers || self.images || self.volumes || self.networks
+    }
+}
+
+async fn publish_changes(
     docker: &Docker,
     state: &Arc<RwLock<DockerState>>,
-) -> Result<serde_json::Value, String> {
-    let containers = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        docker.list_containers(Some(ListContainersOptions {
-            all: true,
-            ..Default::default()
-        })),
-    )
-    .await
-    {
-        Ok(Ok(c)) => c,
-        Ok(Err(e)) => {
-            eprintln!("[DockerWatcher] list_containers error: {}", e);
-            return Err(format!("update_cache: list_containers error: {}", e));
+    changes: &mut ResourceChanges,
+) {
+    if let Some(data) = update_cache(docker, state, changes).await {
+        crate::sse::emit_all("docker-state-updated", &data);
+    }
+}
+
+async fn update_cache(
+    docker: &Docker,
+    state: &Arc<RwLock<DockerState>>,
+    changes: &mut ResourceChanges,
+) -> Option<serde_json::Value> {
+    let containers = async {
+        if !changes.containers {
+            return None;
         }
-        Err(_) => {
-            return Err("update_cache: list_containers timed out".to_string());
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            docker.list_containers(Some(ListContainersOptions { all: true, ..Default::default() })),
+        ).await;
+        match result {
+            Ok(Ok(items)) => Some(map_containers(&items)),
+            failure => {
+                eprintln!("[DockerWatcher] list_containers failed: {failure:?}");
+                None
+            }
         }
     };
-
-    let images = match tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        docker.list_images(Some(ListImagesOptions {
-            all: false,
-            ..Default::default()
-        })),
-    )
-    .await
-    {
-        Ok(Ok(i)) => i,
-        Ok(Err(e)) => {
-            eprintln!("[DockerWatcher] list_images error: {}", e);
-            return Err(format!("update_cache: list_images error: {}", e));
+    let images = async {
+        if !changes.images {
+            return None;
         }
-        Err(_) => {
-            return Err("update_cache: list_images timed out".to_string());
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            docker.list_images(Some(ListImagesOptions { all: false, ..Default::default() })),
+        ).await;
+        match result {
+            Ok(Ok(items)) => Some(map_images(&items)),
+            failure => {
+                eprintln!("[DockerWatcher] list_images failed: {failure:?}");
+                None
+            }
         }
     };
-
-    let mapped_containers = map_containers(&containers);
-    let mapped_images = map_images(&images);
+    let (containers, images) = tokio::join!(containers, images);
 
     let mut lock = state.write().await;
-    lock.containers_cache = mapped_containers.clone();
-    lock.images_cache = mapped_images.clone();
+    if lock.suppressed || lock.docker.is_none() {
+        return None;
+    }
+    let mut refreshed = Vec::new();
+    if let Some(containers) = containers {
+        lock.containers_cache = containers;
+        changes.containers = false;
+        refreshed.push("containers");
+    }
+    if let Some(images) = images {
+        lock.images_cache = images;
+        changes.images = false;
+        refreshed.push("images");
+    }
+    if std::mem::take(&mut changes.volumes) {
+        refreshed.push("volumes");
+    }
+    if std::mem::take(&mut changes.networks) {
+        refreshed.push("networks");
+    }
 
-    Ok(serde_json::json!({
-        "containers": mapped_containers,
-        "images": mapped_images
+    // Preserve the full snapshot fields for existing SSE clients. A frontend
+    // that understands changed resources can skip normalizing the other lists.
+    (!refreshed.is_empty()).then(|| serde_json::json!({
+        "containers": lock.containers_cache,
+        "images": lock.images_cache,
+        "changed": refreshed,
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_events_only_mark_the_affected_resource() {
+        let event = |typ, action: &str| EventMessage {
+            typ: Some(typ),
+            action: Some(action.to_string()),
+            ..Default::default()
+        };
+        let mut changes = ResourceChanges::default();
+
+        assert!(!changes.record(&event(EventMessageTypeEnum::CONTAINER, "exec_start")));
+        assert!(!changes.record(&event(EventMessageTypeEnum::NETWORK, "connect")));
+        assert!(!changes.record(&event(EventMessageTypeEnum::VOLUME, "mount")));
+        assert!(!changes.has_changes());
+
+        assert!(changes.record(&event(EventMessageTypeEnum::IMAGE, "tag")));
+        assert!(changes.images);
+        assert!(!changes.containers && !changes.volumes && !changes.networks);
+    }
 
     #[test]
     fn docker_state_initializes_empty_when_no_daemon() {
@@ -651,7 +722,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_cache_fails_with_err_when_disconnected() {
+    async fn update_cache_keeps_last_good_data_when_disconnected() {
         if let Ok(docker) = Docker::connect_with_unix("/tmp/nonexistent_mock_socket.sock", 1, bollard::API_DEFAULT_VERSION) {
             let state = Arc::new(RwLock::new(DockerState {
                 docker: Some(docker.clone()),
@@ -660,8 +731,10 @@ mod tests {
                 suppressed: false,
                 containerd_warned: false,
             }));
-            let res = update_cache(&docker, &state).await;
-            assert!(res.is_err(), "update_cache must return Err on failure rather than Ok with empty vectors");
+            let mut changes = ResourceChanges { containers: true, ..Default::default() };
+            let res = update_cache(&docker, &state, &mut changes).await;
+            assert!(res.is_none(), "failed reads must not publish an empty snapshot");
+            assert!(changes.containers, "failed resource remains pending for retry");
             let lock = state.read().await;
             assert_eq!(lock.containers_cache.len(), 1, "Cache must not be clobbered on failure");
         }

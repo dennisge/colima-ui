@@ -720,7 +720,6 @@ describe("Tier 5: White-Box Adversarial Coverage Hardening Suite", () => {
     it("prioritizes system warnings in AiEmptyState and triggers callbacks properly", async () => {
       const onSelectPrompt = vi.fn();
       const onInsertPrompt = vi.fn();
-      const onUseOllama = vi.fn();
       const onOpenSettings = vi.fn();
 
       const prompts = getStarterPrompts({
@@ -738,14 +737,8 @@ describe("Tier 5: White-Box Adversarial Coverage Hardening Suite", () => {
         isConfigured: false,
         onSelectPrompt,
         onInsertPrompt,
-        onUseOllama,
         onOpenSettings,
       });
-
-      // Onboarding alert buttons
-      const ollamaBtn = screen.getByRole("button", { name: /use local ollama/i });
-      await fireEvent.click(ollamaBtn);
-      expect(onUseOllama).toHaveBeenCalledTimes(1);
 
       const settingsBtn = screen.getByRole("button", { name: /configure provider/i });
       await fireEvent.click(settingsBtn);

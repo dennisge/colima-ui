@@ -2,9 +2,8 @@
 //!
 //! # Why this exists
 //!
-//! Both Docker watchers in this app consume the event stream as a *signal* —
-//! "something changed, refetch everything" — and apply a 500 ms trailing-edge
-//! debounce so the refetch sees settled state. That is right for a UI: a
+//! The Docker watcher batches related inventory updates with a 500 ms
+//! trailing-edge debounce so the UI sees settled state. That is right for a UI: a
 //! `docker stop` fires kill → stop → die within ~200 ms and there is no reason
 //! to redraw three times.
 //!

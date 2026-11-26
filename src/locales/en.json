@@ -1,4 +1,9 @@
 {
+  "app_error": {
+    "title": "The app encountered an error",
+    "details": "Technical details",
+    "reload": "Reload app"
+  },
   "getting_started": {
     "title": "Welcome to Colima UI",
     "language_select": "Select Language",
@@ -73,7 +78,10 @@
     "language": "Language",
     "subtitle": "Configure ColimaUI, AI behavior, and resources",
     "appearance": "Appearance",
-    "language_desc": "Change the application language"
+    "language_desc": "Change the application language",
+    "theme": "Theme",
+    "theme_light": "Light",
+    "theme_dark": "Dark"
   },
   "errors": {
     "panel_title": "Error details",
@@ -274,8 +282,7 @@
     "bubble_open": "Open Colima AI",
     "bubble_working": "Colima AI is working — click to open",
     "onboarding_title": "AI Provider Not Configured",
-    "onboarding_desc": "Connect to a local Ollama instance without API keys, or configure Claude, OpenAI, or Gemini in Settings to start.",
-    "use_local_ollama": "Use Local Ollama",
+    "onboarding_desc": "Configure a provider and model in Settings to start.",
     "configure_provider": "Configure Provider",
     "suggested_prompts": "Suggested Prompts",
     "choice_multi": "Multi-select",
@@ -338,10 +345,10 @@
     "quickbar_select_provider": "Select AI Provider",
     "quickbar_select_model": "Select Model",
     "quickbar_custom_model": "Custom model name",
-    "quickbar_model_placeholder": "Enter model name (e.g. llama3.2)...",
+    "quickbar_model_placeholder": "Enter model name…",
+    "quickbar_select_model": "Select Model",
     "quickbar_fetch_models": "Fetch Models",
     "quickbar_fetching": "Fetching...",
-    "quickbar_popular_models": "Popular Presets",
     "quickbar_available_models": "Available Models",
     "quickbar_no_models": "No models returned",
     "quickbar_key_missing": "API key not configured",

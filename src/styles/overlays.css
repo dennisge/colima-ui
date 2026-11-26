@@ -3,7 +3,7 @@
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(7, 11, 20, 0.75);
+  background: var(--modal-backdrop);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -116,19 +116,19 @@
 }
 
 .toast-success {
-  background: #1a2e1a;
+  background: var(--toast-success-bg);
   border: 1px solid var(--accent-green);
   color: var(--accent-green);
 }
 
 .toast-error {
-  background: #2e1a1a;
+  background: var(--toast-error-bg);
   border: 1px solid var(--accent-red);
   color: var(--accent-red);
 }
 
 .toast-info {
-  background: #1a1a2e;
+  background: var(--toast-info-bg);
   border: 1px solid var(--accent-blue);
   color: var(--accent-blue);
 }

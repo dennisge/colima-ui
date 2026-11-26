@@ -40,10 +40,14 @@ vi.mock("./lib/api/client", () => ({
 
 import Sidebar from "./components/Sidebar.svelte";
 import Settings from "./pages/Settings.svelte";
+import { settingsApi } from "./lib/api";
+import { APP_THEME_SETTING, settingsState } from "./lib/settingsStore.svelte";
 import { uiState } from "./store.svelte";
 
 afterEach(() => {
   uiState.sidebarCollapsed = false;
+  delete settingsState[APP_THEME_SETTING];
+  vi.restoreAllMocks();
   cleanup();
 });
 
@@ -110,5 +114,21 @@ describe("Sidebar and Settings runtime rendering without Sign-in / Account", () 
     expect(screen.queryByText(/^Account$/)).toBeNull();
     expect(screen.queryByRole("button", { name: /sign\s*in|sign\s*out|manage account/i })).toBeNull();
     expect(container.textContent).not.toMatch(/Sign in to ColimaUI|Signed in with/);
+  });
+
+  it("defaults to dark and saves both supported theme choices", async () => {
+    const save = vi.spyOn(settingsApi, "set");
+    render(Settings, { props: { systemInfo: sampleSystemInfo } });
+
+    const theme = screen.getByRole<HTMLSelectElement>("combobox", { name: "Theme" });
+    expect(theme.value).toBe("dark");
+
+    await fireEvent.change(theme, { target: { value: "light" } });
+    expect(settingsState[APP_THEME_SETTING]).toBe("light");
+    expect(save).toHaveBeenLastCalledWith(APP_THEME_SETTING, "light");
+
+    await fireEvent.change(theme, { target: { value: "dark" } });
+    expect(settingsState[APP_THEME_SETTING]).toBe("dark");
+    expect(save).toHaveBeenLastCalledWith(APP_THEME_SETTING, "dark");
   });
 });

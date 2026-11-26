@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { containerResources, ensureDockerRuntime } from "../lib/dockerResources";
   import { onMount } from "svelte";
-  import { dockerApi, sysMethods, type DockerContainer } from "../lib/api";
+  import { dockerApi, type DockerContainer } from "../lib/api";
   import { globalToast } from "../lib/globalToast";
   import { reportError } from "../lib/errorReporter";
   import { t } from "../lib/i18n.svelte";
@@ -106,22 +107,12 @@
   let selectedContainerId = $state<string | null>(null);
   const selectedContainer = $derived(selectedContainerId ? dockerState.containers.find((c) => c.Id === selectedContainerId) ?? null : null);
   let showRunModal = $state(false);
-  let runtimeName = $state("docker");
   let selected = $state<Set<string>>(new Set());
   let batchLoading = $state(false);
   let confirm = $state<{ title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void; onCancel?: () => void } | null>(null);
   
   let presetMap = $state<Map<string, string>>(new Map());
   let activePreset = getCurrentPresetForInstance("default");
-
-  async function refreshContainers() {
-    try {
-      const list = await dockerApi.listContainers(true);
-      dockerState.containers = list;
-    } catch {
-      dockerState.containers = [];
-    }
-  }
 
   $effect(() => {
     getContainerPresetMap("default").then((map) => presetMap = map).catch(() => {});
@@ -135,7 +126,9 @@
   });
 
   onMount(() => {
-    refreshContainers().then(() => {
+    let mounted = true;
+    containerResources.ensure().then(() => {
+      if (!mounted) return;
       // Arrived from the topology graph's "Open in Containers": open the same
       // container's detail panel rather than dropping the user at a list they
       // then have to search. A container that has since gone is ignored.
@@ -144,7 +137,7 @@
       const match = dockerState.containers.find((c) => c.Id === focus || c.Id.startsWith(focus));
       if (match) selectedContainerId = match.Id;
     });
-    sysMethods.getRuntimeInfo().then(r => runtimeName = r).catch(() => {});
+    ensureDockerRuntime();
 
     const aiListener = async (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -165,6 +158,7 @@
     window.addEventListener("delete-container", aiListener);
 
     return () => {
+      mounted = false;
       window.removeEventListener("start-container", aiListener);
       window.removeEventListener("stop-container", aiListener);
       window.removeEventListener("restart-container", aiListener);
@@ -190,13 +184,13 @@
                 await dockerApi.removeContainer(id, true);
                 selected = new Set();
                 globalToast("success", `Container '${name}' removed`);
-                await refreshContainers();
+                await containerResources.afterChange();
                 resolve();
               } catch (e) {
                 reportError(e, { action: `Remove container '${name}'` });
                 setRowError(id, e);
                 clearEventCooldown();
-                await Promise.allSettled([refreshContainers(), refreshManual()]);
+                await Promise.allSettled([containerResources.afterChange(), refreshManual()]);
                 reject(e);
               } finally {
                 actionLoading = null;
@@ -212,12 +206,12 @@
       const past: Record<string, string> = { start: "started", stop: "stopped", restart: "restarted", remove: "removed", pause: "paused", unpause: "unpaused" };
       globalToast("success", `Container '${name}' ${past[action] || action}`);
       clearRowError(id);
-      await refreshContainers();
+      await containerResources.afterChange();
     } catch (e) {
       reportError(e, { action: `${action} container '${name}'` });
       setRowError(id, e);
       clearEventCooldown();
-      await Promise.allSettled([refreshContainers(), refreshManual()]);
+      await Promise.allSettled([containerResources.afterChange(), refreshManual()]);
     } finally {
       if (action !== "remove") actionLoading = null;
     }
@@ -278,7 +272,7 @@
         }
         selected = new Set();
         batchLoading = false;
-        refreshContainers();
+        containerResources.afterChange();
       },
       onCancel: () => { confirm = null; }
     };
@@ -363,7 +357,7 @@
       clearEventCooldown();
     }
     batchLoading = false;
-    refreshContainers();
+    containerResources.afterChange();
   }
 
   function toggleSelect(id: string) {
@@ -398,7 +392,7 @@
       await dockerApi.runContainer(runImage.trim(), runName.trim(), p, e, v, runDetach, runRemove);
       globalToast("success", "Container started!");
       showRunModal = false;
-      refreshContainers();
+      containerResources.afterChange();
     } catch (e) {
       reportError(e, { action: "Run container" });
     } finally {
@@ -520,11 +514,11 @@
     <span style="font-size: var(--text-sm); color: var(--text-muted); font-weight: 400; margin-left: 12px;" title={`${runningCount} ${t('containers.running', { default: 'running' })} · ${dockerState.containers.length} ${t('containers.total', { default: 'total' })}`}>
       {runningCount} {t('containers.running', { default: 'running' })} · {dockerState.containers.length} {t('containers.total', { default: 'total' })}
     </span>
-    {#if runtimeName}
+    {#if dockerState.runtimeName}
       <span class="header-badge" style="font-size: var(--text-xs); background: var(--bg-secondary); border: 1px solid var(--border-primary); padding: 2px 8px; border-radius: 12px; margin-left: 12px; color: var(--text-muted);">
-        {#if runtimeName === "podman"}
+        {#if dockerState.runtimeName === "podman"}
           🦭 Podman
-        {:else if runtimeName === "containerd"}
+        {:else if dockerState.runtimeName === "containerd"}
           📦 Containerd
         {:else}
           {@html Icons.Docker} Docker

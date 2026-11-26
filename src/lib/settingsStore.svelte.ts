@@ -1,6 +1,7 @@
 import { settingsApi } from "./api";
 import { setLanguage } from "./i18n.svelte";
 
+export const APP_THEME_SETTING = "app.theme";
 export const appState = $state({ isSettingsLoaded: false });
 export const settingsState = $state<{ [key: string]: string }>({});
 

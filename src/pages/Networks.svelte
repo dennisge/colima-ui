@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { networkResources, ensureDockerRuntime } from "../lib/dockerResources";
   import { onMount } from "svelte";
-  import { networksApi, sysMethods } from "../lib/api";
+  import { networksApi } from "../lib/api";
   import { globalToast } from "../lib/globalToast";
-  import { resourceState } from "../store.svelte";
+  import { dockerState, resourceState } from "../store.svelte";
   import * as Icons from "../components/Icons.svelte";
   import RowActions from "../components/RowActions.svelte";
   import { t } from "../lib/i18n.svelte";
@@ -20,22 +21,10 @@
   let selected = $state<Set<string>>(new Set());
   let batchLoading = $state(false);
   let confirm = $state<{ title: string; message: string; confirmLabel: string; danger: boolean; onConfirm: () => void; onCancel?: () => void } | null>(null);
-  let runtimeName = $state("docker");
-
-  async function refreshNetworks() {
-    try {
-      const list = await networksApi.listNetworks();
-      resourceState.networks = list;
-    } catch {
-      resourceState.networks = [];
-    } finally {
-      resourceState.networksLoading = false;
-    }
-  }
 
   onMount(() => {
-    refreshNetworks();
-    sysMethods.getRuntimeInfo().then(r => runtimeName = r).catch(() => {});
+    networkResources.ensure();
+    ensureDockerRuntime();
 
     const aiListener = async (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -70,7 +59,7 @@
       newName = "";
       newSubnet = "";
       showCreate = false;
-      refreshNetworks();
+      networkResources.afterChange();
     } catch (e) {
       globalToast("error", String(e));
     } finally {
@@ -100,7 +89,7 @@
       await networksApi.removeNetwork(name);
       selected = new Set();
       globalToast("success", `Network "${name}" removed`);
-      refreshNetworks();
+      networkResources.afterChange();
     } catch (e) {
       globalToast("error", String(e));
       throw e;
@@ -120,7 +109,7 @@
           await networksApi.pruneNetworks();
           selected = new Set();
           globalToast("success", "Unused networks pruned");
-          refreshNetworks();
+          networkResources.afterChange();
         } catch (e) {
           globalToast("error", String(e));
         } finally {
@@ -172,7 +161,7 @@
         }
         selected = new Set();
         batchLoading = false;
-        refreshNetworks();
+        networkResources.afterChange();
         if (ok_count > 0) {
           globalToast("success", `Removed ${ok_count} network(s)`);
         } else {
@@ -203,11 +192,11 @@
     <span style="font-size: var(--text-sm); color: var(--text-muted); font-weight: 400; margin-left: 12px;">
       {resourceState.networks.length} {t('networks.count', { default: 'networks' })}
     </span>
-    {#if runtimeName}
+    {#if dockerState.runtimeName}
       <span style="font-size: var(--text-xs); background: var(--bg-secondary); border: 1px solid var(--border-primary); padding: 2px 8px; border-radius: 12px; margin-left: 12px; color: var(--text-muted);">
-        {#if runtimeName === "podman"}
+        {#if dockerState.runtimeName === "podman"}
           🦭 Podman
-        {:else if runtimeName === "containerd"}
+        {:else if dockerState.runtimeName === "containerd"}
           📦 Containerd
         {:else}
           {@html Icons.Docker} Docker
@@ -227,7 +216,7 @@
     <button class="btn btn-primary" onclick={() => showCreate = !showCreate}>
       + {t('networks.create_button', { default: 'Create Network' })}
     </button>
-    <button class="btn btn-ghost" onclick={refreshNetworks}>{t('networks.refresh', { default: '↻ Refresh' })}</button>
+    <button class="btn btn-ghost" onclick={networkResources.refresh}>{t('networks.refresh', { default: '↻ Refresh' })}</button>
   </div>
 </div>
 

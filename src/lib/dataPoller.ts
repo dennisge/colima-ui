@@ -1,7 +1,11 @@
-import { colimaApi, dockerApi, volumesApi, networksApi, sysMethods, getApiToken, type ColimaInstance } from "./api";
+import { colimaApi, sysMethods, getApiToken, type ColimaInstance } from "./api";
 import { resolveApiBase } from "./api/client";
 import { loadCapabilities } from "../store/capabilities.svelte";
 import { normalizeContainer, normalizeImage } from "./normalizers";
+import {
+  containerResources, imageResources, volumeResources, networkResources,
+  ensureDockerRuntime, resumeDockerResources, suspendDockerResources,
+} from "./dockerResources";
 import { dockerState, resourceState, dashboardState, isEventCooldownActive, uiState, isValidPage } from "../store.svelte";
 import { getAppSetting } from "./settingsStore.svelte";
 import { setVisibleInterval } from "./visibleInterval";
@@ -19,6 +23,9 @@ let currentEventSource: EventSource | null = null;
 // A refetch already in flight when teardown runs would otherwise schedule its
 // retry after the timeout was cleared, and keep polling a dead context.
 let disposed = false;
+let awaitingReconnect = false;
+let dockerRefetch: Promise<void> | null = null;
+let retryOnVisible: (() => void) | null = null;
 let stopSysPoll: (() => void) | null = null;
 let sseRetryTimeout: ReturnType<typeof setTimeout> | null = null;
 let activeUnlisteners: (() => void)[] = [];
@@ -51,74 +58,84 @@ export async function refreshManual() {
   }
 }
 
-export async function refetchAllResources() {
-  if (disposed) return;
-  let fetchFailed = false;
-  try {
-    const [c, i] = await Promise.all([
-      dockerApi.listContainers(true),
-      dockerApi.listImages(),
-    ]);
-    dockerState.containers = c;
-    dockerState.images = i;
-    dockerState.loading = false;
-  } catch {
-    fetchFailed = true;
-    dockerState.containers = [];
-    refreshManual();
-  }
-  
-  try {
-    resourceState.volumes = await volumesApi.listVolumes();
-    resourceState.volumesLoading = false;
-  } catch {
-    fetchFailed = true;
-  }
-  
-  try {
-    resourceState.networks = await networksApi.listNetworks();
-    resourceState.networksLoading = false;
-  } catch {
-    fetchFailed = true;
-  }
-
-  if (fetchFailed) {
-    // Checked before the retry branch below: a teardown mid-flight must not
-    // schedule retries when it never got to retry at all.
-    if (disposed) return;
-    _refetchRetryCount++;
-    const delay = _refetchRetryCount < MAX_REFETCH_RETRIES ? 5000 : 15000;
-    refetchRetryTimeout = setTimeout(() => {
-      if (disposed) return;
-      if (typeof document === "undefined" || document.visibilityState === "visible") {
-        refetchAllResources();
-      } else {
-        const onVisible = () => {
-          document.removeEventListener("visibilitychange", onVisible);
-          if (!disposed) refetchAllResources();
-        };
-        document.addEventListener("visibilitychange", onVisible, { once: true });
-      }
-    }, delay);
-  } else {
-    _refetchRetryCount = 0;
-  }
+function clearRefetchRetry() {
+  if (refetchRetryTimeout) clearTimeout(refetchRetryTimeout);
+  refetchRetryTimeout = null;
+  if (retryOnVisible) document.removeEventListener("visibilitychange", retryOnVisible);
+  retryOnVisible = null;
 }
 
-function handleDockerStateUpdated(data: { containers?: unknown[]; images?: unknown[] }) {
-  if (isEventCooldownActive()) return;
+function scheduleRefetchRetry() {
+  const delay = ++_refetchRetryCount < MAX_REFETCH_RETRIES ? 5000 : 15000;
+  refetchRetryTimeout = setTimeout(() => {
+    refetchRetryTimeout = null;
+    if (typeof document === "undefined" || document.visibilityState === "visible") {
+      void refetchAllResources();
+      return;
+    }
+    retryOnVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      clearRefetchRetry();
+      void refetchAllResources();
+    };
+    document.addEventListener("visibilitychange", retryOnVisible);
+  }, delay);
+}
 
-  dockerState.containers = (data.containers || []).map((c) => normalizeContainer(c as Record<string, unknown>));
-  dockerState.images = (data.images || []).map((i) => normalizeImage(i as Record<string, unknown>));
-  dockerState.loading = false;
-  
-  setTimeout(() => {
-    volumesApi.listVolumes().then((v) => { resourceState.volumes = v; resourceState.volumesLoading = false; }).catch(() => {});
-    networksApi.listNetworks().then((n) => { resourceState.networks = n; resourceState.networksLoading = false; }).catch(() => {});
-  }, 1000);
+function refetchResources(ensureSnapshots = false): Promise<void> {
+  if (disposed) return Promise.resolve();
+  if (dockerRefetch) return dockerRefetch;
+  clearRefetchRetry();
+
+  const result = Promise.all([
+    ensureSnapshots ? containerResources.ensure() : containerResources.refresh(),
+    ensureSnapshots ? imageResources.ensure() : imageResources.refresh(),
+    volumeResources.refresh(),
+    networkResources.refresh(),
+  ]).then((results) => {
+    if (dockerRefetch !== result) return;
+    dockerRefetch = null;
+    if (results.every(Boolean)) {
+      _refetchRetryCount = 0;
+    } else {
+      if (!results[0]) void refreshManual();
+      scheduleRefetchRetry();
+    }
+  });
+  dockerRefetch = result;
+  return result;
+}
+
+export function refetchAllResources() {
+  return refetchResources();
+}
+
+interface DockerStateUpdate {
+  containers?: Record<string, unknown>[];
+  images?: Record<string, unknown>[];
+  changed?: ("containers" | "images" | "volumes" | "networks")[];
+}
+
+function handleDockerStateUpdated(data: DockerStateUpdate) {
+  if (disposed || awaitingReconnect) return;
+
+  if (!isEventCooldownActive() && Array.isArray(data.containers)
+      && (!data.changed || data.changed.includes("containers"))) {
+    containerResources.accept(data.containers.map(normalizeContainer));
+  }
+  if (Array.isArray(data.images) && (!data.changed || data.changed.includes("images"))) {
+    imageResources.accept(data.images.map(normalizeImage));
+  }
+  if (data.changed?.includes("volumes")) void volumeResources.afterChange();
+  if (data.changed?.includes("networks")) void networkResources.afterChange();
 }
 
 function handleConnectionLost() {
+  awaitingReconnect = true;
+  dockerRefetch = null;
+  clearRefetchRetry();
+  suspendDockerResources();
+  resumeDockerResources();
   dockerState.containers = [];
   dockerState.images = [];
   resourceState.volumes = [];
@@ -126,6 +143,12 @@ function handleConnectionLost() {
   dockerState.loading = true;
   resourceState.volumesLoading = true;
   resourceState.networksLoading = true;
+}
+
+function handleDockerReconnected() {
+  awaitingReconnect = false;
+  ensureDockerRuntime();
+  return refetchResources(true);
 }
 
 function showUnsupportedRuntimeToast(payload: { runtime?: string; profiles?: string[] }) {
@@ -150,6 +173,8 @@ export function startDataPoller() {
   // A second start after a teardown (HMR, or a re-mounted root) must not
   // inherit the previous run's disposed flag or its retry count.
   disposed = false;
+  awaitingReconnect = false;
+  resumeDockerResources();
   _refetchRetryCount = 0;
   refreshManual();
   refetchAllResources();
@@ -183,12 +208,12 @@ export function startDataPoller() {
         })
       );
       trackUnlisten(
-        mod.listen("docker-state-updated", (event: { payload: { containers?: unknown[]; images?: unknown[] } }) =>
+        mod.listen("docker-state-updated", (event: { payload: DockerStateUpdate }) =>
           handleDockerStateUpdated(event.payload)
         )
       );
       trackUnlisten(mod.listen("docker-connection-lost", handleConnectionLost));
-      trackUnlisten(mod.listen("docker-reconnected", refetchAllResources));
+      trackUnlisten(mod.listen("docker-reconnected", handleDockerReconnected));
       trackUnlisten(
         mod.listen("docker-unsupported-runtime", (event: { payload: { runtime?: string; profiles?: string[] } }) =>
           showUnsupportedRuntimeToast(event.payload)
@@ -245,13 +270,13 @@ export function startDataPoller() {
       });
       es.addEventListener("docker-state-updated", (e: MessageEvent) => {
         try {
-          handleDockerStateUpdated(JSON.parse(e.data) as { containers?: unknown[]; images?: unknown[] });
+          handleDockerStateUpdated(JSON.parse(e.data) as DockerStateUpdate);
         } catch {
           // A malformed SSE frame is ignored; the next update will retry.
         }
       });
       es.addEventListener("docker-connection-lost", handleConnectionLost);
-      es.addEventListener("docker-reconnected", refetchAllResources);
+      es.addEventListener("docker-reconnected", handleDockerReconnected);
       es.addEventListener("docker-unsupported-runtime", (e: MessageEvent) => {
         try {
           showUnsupportedRuntimeToast(JSON.parse(e.data) as { runtime?: string; profiles?: string[] });
@@ -264,6 +289,9 @@ export function startDataPoller() {
         if (stopPolling) {
           stopPolling();
           stopPolling = null;
+          // The transport might have missed changes while disconnected.
+          awaitingReconnect = false;
+          void refetchAllResources();
         }
       };
       es.onerror = () => {
@@ -291,7 +319,9 @@ export function stopDataPoller() {
   disposed = true;
   if (stopSysPoll) { stopSysPoll(); stopSysPoll = null; }
   if (stopPolling) { stopPolling(); stopPolling = null; }
-  if (refetchRetryTimeout) { clearTimeout(refetchRetryTimeout); refetchRetryTimeout = null; }
+  dockerRefetch = null;
+  suspendDockerResources();
+  clearRefetchRetry();
   if (sseRetryTimeout) { clearTimeout(sseRetryTimeout); sseRetryTimeout = null; }
   const registered = activeUnlisteners;
   activeUnlisteners = [];

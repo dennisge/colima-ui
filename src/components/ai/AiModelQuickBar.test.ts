@@ -89,7 +89,7 @@ describe("AiModelQuickBar.svelte", () => {
     expect(screen.getByText(/select ai provider/i)).toBeInTheDocument();
   });
 
-  it("switches model when a popular preset chip is clicked", async () => {
+  it("does not show curated model recommendations", async () => {
     const onSelectModel = vi.fn();
     render(AiModelQuickBar, {
       activeProviderId: "ollama-local",
@@ -100,11 +100,10 @@ describe("AiModelQuickBar.svelte", () => {
     const pill = screen.getByRole("button", { name: /llama3.2/i });
     await fireEvent.click(pill);
 
-    const presetChip = screen.getByRole("button", { name: "deepseek-r1:8b" });
-    await fireEvent.click(presetChip);
-
-    expect(onSelectModel).toHaveBeenCalledWith("ollama-local", "deepseek-r1:8b");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByText("Popular Presets")).toBeNull();
+    expect(screen.queryByRole("button", { name: "deepseek-r1:8b" })).toBeNull();
+    expect(onSelectModel).not.toHaveBeenCalled();
   });
 
   it("calls onOpenSettings when settings gear button is clicked", async () => {
@@ -163,7 +162,7 @@ describe("AiModelQuickBar.svelte", () => {
     const pill = screen.getByRole("button", { name: /llama3.2/i });
     await fireEvent.click(pill);
 
-    const [ollamaTab] = screen.getAllByRole("button", { name: "Ollama" });
+    const [ollamaTab] = screen.getAllByRole("button", { name: "Ollama Local" });
     expect(ollamaTab).toHaveClass("active");
 
     const anthropicTab = screen.getByRole("button", { name: "Anthropic" });
@@ -173,8 +172,9 @@ describe("AiModelQuickBar.svelte", () => {
     expect(anthropicTab).toHaveClass("active");
     expect(ollamaTab).not.toHaveClass("active");
 
-    const preset = screen.getByRole("button", { name: "claude-3-5-sonnet-20241022" });
-    await fireEvent.click(preset);
+    const model = screen.getByPlaceholderText(/enter model name/i);
+    await fireEvent.input(model, { target: { value: "claude-3-5-sonnet-20241022" } });
+    await fireEvent.keyDown(model, { key: "Enter" });
 
     expect(onSelectModel).toHaveBeenCalledWith("anthropic", "claude-3-5-sonnet-20241022");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

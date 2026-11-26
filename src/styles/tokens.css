@@ -1,6 +1,7 @@
 /* ===== Design Tokens ===== */
 
 :root {
+  color-scheme: dark;
   /* Colors — Premium Dark Mode */
   --bg-app: #0a0e17;
   --bg-sidebar: #0d1117;
@@ -10,6 +11,12 @@
   --bg-input: #0d1117;
   --bg-overlay: rgba(0, 0, 0, 0.72);
   --bg-secondary: #1a2035;
+  --modal-backdrop: rgba(7, 11, 20, 0.75);
+  --metric-card-bg: rgba(30, 33, 39, 0.6);
+  --metric-card-border: rgba(255, 255, 255, 0.08);
+  --toast-success-bg: #1a2e1a;
+  --toast-error-bg: #2e1a1a;
+  --toast-info-bg: #1a1a2e;
 
   --border-primary: #2a3349;
   --border-subtle: #1e2a40;
@@ -147,6 +154,63 @@
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 400ms ease;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #eeedea;
+  --bg-sidebar: #e9e8e5;
+  --bg-content: #f1f0ee;
+  --bg-card: #f6f5f2;
+  --bg-card-hover: #ebeae6;
+  --bg-input: #f8f7f5;
+  --bg-overlay: rgba(36, 35, 32, 0.36);
+  --bg-secondary: #e8e7e3;
+  --modal-backdrop: var(--bg-overlay);
+  --metric-card-bg: var(--bg-card);
+  --metric-card-border: var(--border-primary);
+  --toast-success-bg: #edf2eb;
+  --toast-error-bg: #f5eeeb;
+  --toast-info-bg: #eef1f3;
+
+  --border-primary: #cfcdc7;
+  --border-subtle: #dad8d2;
+  --border-accent: rgba(84, 82, 75, 0.38);
+  --surface-selected: #e1e0db;
+  --border-selected: #b8b5ae;
+  --text-primary: #292825;
+  --text-secondary: #42413d;
+  --text-muted: #5e5c55;
+
+  --accent-blue: #31588c;
+  --accent-blue-glow: rgba(49, 88, 140, 0.11);
+  --accent-green: #27654d;
+  --accent-green-glow: rgba(39, 101, 77, 0.11);
+  --accent-red: #963e37;
+  --accent-red-glow: rgba(150, 62, 55, 0.11);
+  --accent-yellow: #795d25;
+  --accent-yellow-glow: rgba(121, 93, 37, 0.11);
+  --accent-purple: #634a81;
+  --accent-purple-glow: rgba(99, 74, 129, 0.11);
+  --accent-orange: #854821;
+  --accent-cyan: #2f6570;
+  --accent-cyan-glow: rgba(47, 101, 112, 0.11);
+
+  --status-running: var(--accent-green);
+  --status-stopped: var(--accent-red);
+  --status-starting: var(--accent-yellow);
+  --status-broken: var(--text-muted);
+  --surface-hover: rgba(49, 47, 41, 0.06);
+  --surface-sunken: rgba(49, 47, 41, 0.08);
+  --glass-bg: rgba(246, 245, 242, 0.92);
+  --glass-border: rgba(49, 47, 41, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(36, 35, 32, 0.07);
+  --shadow-md: 0 4px 12px rgba(36, 35, 32, 0.10);
+  --shadow-lg: 0 12px 28px rgba(36, 35, 32, 0.13);
+  --shadow-xl: 0 20px 50px rgba(36, 35, 32, 0.16);
+  --shadow-glow-blue: none;
+  --shadow-glow-green: none;
 }
 
 /* Tauri draws the window controls over the page, so every top bar needs the

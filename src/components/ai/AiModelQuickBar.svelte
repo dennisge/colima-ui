@@ -49,20 +49,10 @@
   let popoverEl = $state<HTMLDivElement>();
   let pillBtnEl = $state<HTMLButtonElement>();
 
-  // Curated popular presets per provider for instant 1-click selection
-  const POPULAR_PRESETS: Record<string, string[]> = {
-    "ollama-local": ["qwen2.5-coder:7b", "llama3.2", "deepseek-r1:8b"],
-    "anthropic": ["claude-3-5-sonnet-latest", "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-5-sonnet-20241022"],
-    "openai": ["gpt-4o", "gpt-4o-mini", "o3-mini"],
-    "gemini": ["gemini-2.0-flash", "gemini-2.5-flash-preview", "gemini-1.5-pro"],
-    "openai-compatible": ["openai/gpt-4o", "anthropic/claude-3-5-sonnet", "deepseek/deepseek-r1"],
-    "ollama-cloud": ["gpt-oss:120b", "llama3.3:70b"],
-  };
-
   const effectiveProvider = $derived(activeProviderId || selectedProvider || getActiveProvider());
   const providerSpec = $derived(findProvider(effectiveProvider));
   const selectedProviderSpec = $derived(findProvider(selectedProvider));
-  const effectiveModel = $derived(activeModel || getProviderField(effectiveProvider, "model") || "default");
+  const effectiveModel = $derived(activeModel || getProviderField(effectiveProvider, "model"));
 
   const isConfigured = $derived.by(() => {
     if (!providerSpec) return false;
@@ -95,8 +85,6 @@
         : raw.charAt(0).toUpperCase() + raw.slice(1);
     return t(sidebarKey, { default: fallback });
   });
-
-  const currentPresets = $derived(POPULAR_PRESETS[selectedProvider] || []);
 
   // Track previous prop values to avoid circular reactivity locks
   let prevProvider = $state("");
@@ -156,7 +144,7 @@
 
   function handleSelectProviderTab(provId: string) {
     selectedProvider = provId;
-    modelInput = getProviderField(provId, "model") || POPULAR_PRESETS[provId]?.[0] || "";
+    modelInput = getProviderField(provId, "model");
     availableModels = [];
     fetchError = null;
   }
@@ -222,10 +210,10 @@
       onclick={togglePopover}
       aria-expanded={popoverOpen}
       aria-haspopup="dialog"
-      title={tr("ai.quickbar_provider_model", "Provider & Model: {provider} / {model}", {
+      title={effectiveModel ? tr("ai.quickbar_provider_model", "Provider & Model: {provider} / {model}", {
         provider: providerSpec?.label || effectiveProvider,
         model: effectiveModel,
-      })}
+      }) : tr("ai.quickbar_select_model", "Select Model")}
     >
       <span
         class="ai-status-dot"
@@ -233,8 +221,12 @@
         class:warning={!isConfigured}
         aria-hidden="true"
       ></span>
-      <span class="ai-provider-badge">{providerSpec?.label.split(" ")[0] || effectiveProvider}</span>
-      <span class="ai-model-label">{effectiveModel}</span>
+      {#if effectiveModel}
+        <span class="ai-provider-badge">{providerSpec?.label || effectiveProvider}</span>
+        <span class="ai-model-label">{effectiveModel}</span>
+      {:else}
+        <span class="ai-model-label">{tr("ai.quickbar_select_model", "Select Model")}</span>
+      {/if}
       <svg
         class="ai-chevron-icon"
         class:rotated={popoverOpen}
@@ -343,7 +335,7 @@
             class:active={selectedProvider === prov.id}
             onclick={() => handleSelectProviderTab(prov.id)}
           >
-            {prov.label.split(" ")[0]}
+            {prov.label}
           </button>
         {/each}
       </div>
@@ -369,7 +361,7 @@
           type="text"
           class="ai-model-input"
           bind:value={modelInput}
-          placeholder={tr("ai.quickbar_model_placeholder", "Enter model name (e.g. llama3.2)...")}
+          placeholder={tr("ai.quickbar_model_placeholder", "Enter model name…")}
           onkeydown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -399,25 +391,6 @@
 
       {#if fetchError}
         <div class="ai-fetch-error">{fetchError}</div>
-      {/if}
-
-      <!-- Popular Presets -->
-      {#if currentPresets.length > 0}
-        <div class="ai-presets-section">
-          <div class="ai-presets-header">{tr("ai.quickbar_popular_models", "Popular Presets")}</div>
-          <div class="ai-presets-grid">
-            {#each currentPresets as preset (preset)}
-              <button
-                type="button"
-                class="ai-preset-chip"
-                class:active={effectiveModel === preset && effectiveProvider === selectedProvider}
-                onclick={() => applyModelChoice(selectedProvider, preset)}
-              >
-                {preset}
-              </button>
-            {/each}
-          </div>
-        </div>
       {/if}
 
       <!-- Fetched Models List -->
@@ -806,8 +779,7 @@
     padding: 2px 4px;
   }
 
-  /* Presets */
-  .ai-presets-section,
+  /* Fetched models */
   .ai-fetched-section {
     display: flex;
     flex-direction: column;
@@ -819,36 +791,6 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
-  }
-
-  .ai-presets-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .ai-preset-chip {
-    padding: 3px 6px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-  }
-
-  .ai-preset-chip:hover {
-    background: var(--bg-card-hover);
-    color: var(--text-primary);
-  }
-
-  .ai-preset-chip.active {
-    background: var(--surface-selected);
-    border-color: var(--border-selected);
-    color: var(--accent-green);
-    font-weight: 500;
   }
 
   /* Fetched List */

@@ -1,4 +1,9 @@
 {
+  "app_error": {
+    "title": "Ứng dụng đã gặp lỗi",
+    "details": "Chi tiết kỹ thuật",
+    "reload": "Tải lại ứng dụng"
+  },
   "getting_started": {
     "title": "Chào mừng đến với Colima UI",
     "language_select": "Chọn Ngôn Ngữ",
@@ -73,6 +78,9 @@
     "language": "Ngôn ngữ",
     "subtitle": "Configure ColimaUI, AI behavior, and resources",
     "appearance": "Appearance",
+    "theme": "Giao diện",
+    "theme_light": "Sáng",
+    "theme_dark": "Tối",
     "language_desc": "Change the application language"
   },
   "errors": {
@@ -274,8 +282,7 @@
     "bubble_open": "Mở Colima AI",
     "bubble_working": "Colima AI đang chạy — bấm để mở",
     "onboarding_title": "Chưa cấu hình nhà cung cấp AI",
-    "onboarding_desc": "Kết nối với phiên bản Ollama cục bộ không cần API key, hoặc cấu hình Claude, OpenAI, Gemini trong Cài đặt để bắt đầu.",
-    "use_local_ollama": "Dùng Ollama cục bộ",
+    "onboarding_desc": "Chọn nhà cung cấp và mô hình trong Cài đặt để bắt đầu.",
     "configure_provider": "Cấu hình nhà cung cấp",
     "suggested_prompts": "Gợi ý câu hỏi",
     "choice_multi": "Chọn nhiều mục",
@@ -338,10 +345,10 @@
     "quickbar_select_provider": "Chọn nhà cung cấp AI",
     "quickbar_select_model": "Chọn mô hình",
     "quickbar_custom_model": "Tên mô hình tùy chỉnh",
-    "quickbar_model_placeholder": "Nhập tên mô hình (vd: llama3.2)...",
+    "quickbar_model_placeholder": "Nhập tên mô hình…",
+    "quickbar_select_model": "Chọn mô hình",
     "quickbar_fetch_models": "Tải danh sách mô hình",
     "quickbar_fetching": "Đang tải...",
-    "quickbar_popular_models": "Mô hình phổ biến",
     "quickbar_available_models": "Mô hình khả dụng",
     "quickbar_no_models": "Không tìm thấy mô hình nào",
     "quickbar_key_missing": "Chưa cấu hình khóa API",

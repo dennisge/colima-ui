@@ -160,16 +160,6 @@ export function getStarterPrompts(context: StarterPromptContext = {}): StarterPr
   const maxPagePrompts = selectedWarnings.length > 0 ? 2 : 4;
   prompts.push(...pagePrompts.slice(0, maxPagePrompts));
 
-  if (prompts.length < 4 && page === "settings") {
-    prompts.push({
-      id: "starter-general-optimize",
-      title: t("ai.starter.general_optimize_title", { default: "Optimize VM resources" }),
-      prompt: t("ai.starter.general_optimize_prompt", { default: "What are the recommended CPU, memory, and disk settings for my Colima instances?" }),
-      icon: "general",
-      category: "help",
-    });
-  }
-
   return prompts.slice(0, 4);
 }
 

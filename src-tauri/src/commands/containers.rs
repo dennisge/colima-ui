@@ -185,27 +185,25 @@ pub async fn list_containers(     state: tauri::State<'_, std::sync::Arc<tokio::
     async move {
     // Try Bollard SDK first (faster — uses Docker socket directly)
     let mut bollard_error: Option<String> = None;
-    {
-        let lock = state.read().await;
-        if let Some(docker) = &lock.docker {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                docker.list_containers(Some(bollard::query_parameters::ListContainersOptions {
-                    all,
-                    ..Default::default()
-                })),
-            )
-            .await
-            {
-                Ok(Ok(containers)) => {
-                    return Ok(crate::docker_state::map_containers(&containers));
-                }
-                Ok(Err(e)) => {
-                    bollard_error = Some(format!("{}", e));
-                }
-                Err(_) => {
-                    bollard_error = Some("Bollard timed out".to_string());
-                }
+    let docker = state.read().await.docker.clone();
+    if let Some(docker) = docker {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            docker.list_containers(Some(bollard::query_parameters::ListContainersOptions {
+                all,
+                ..Default::default()
+            })),
+        )
+        .await
+        {
+            Ok(Ok(containers)) => {
+                return Ok(crate::docker_state::map_containers(&containers));
+            }
+            Ok(Err(e)) => {
+                bollard_error = Some(format!("{}", e));
+            }
+            Err(_) => {
+                bollard_error = Some("Bollard timed out".to_string());
             }
         }
     }
@@ -400,27 +398,25 @@ pub async fn list_images(     state: tauri::State<'_, std::sync::Arc<tokio::sync
     async move {
     // Try Bollard SDK first (faster — uses Docker socket directly)
     let mut bollard_error: Option<String> = None;
-    {
-        let lock = state.read().await;
-        if let Some(docker) = &lock.docker {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                docker.list_images(Some(bollard::query_parameters::ListImagesOptions {
-                    all: false,
-                    ..Default::default()
-                })),
-            )
-            .await
-            {
-                Ok(Ok(images)) => {
-                    return Ok(crate::docker_state::map_images(&images));
-                }
-                Ok(Err(e)) => {
-                    bollard_error = Some(format!("{}", e));
-                }
-                Err(_) => {
-                    bollard_error = Some("Bollard timed out".to_string());
-                }
+    let docker = state.read().await.docker.clone();
+    if let Some(docker) = docker {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            docker.list_images(Some(bollard::query_parameters::ListImagesOptions {
+                all: false,
+                ..Default::default()
+            })),
+        )
+        .await
+        {
+            Ok(Ok(images)) => {
+                return Ok(crate::docker_state::map_images(&images));
+            }
+            Ok(Err(e)) => {
+                bollard_error = Some(format!("{}", e));
+            }
+            Err(_) => {
+                bollard_error = Some("Bollard timed out".to_string());
             }
         }
     }

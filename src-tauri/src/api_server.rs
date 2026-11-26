@@ -368,8 +368,6 @@ pub fn start_api_server() {
     tauri::async_runtime::spawn(async {
         let app = build_router();
 
-        // Spawn Docker bollard watcher for SSE events
-        tokio::spawn(sse_docker_watcher());
         // Spawn instance change publisher for SSE events
         tokio::spawn(sse_instance_publisher());
 

@@ -698,21 +698,21 @@ describe('Tier 1: Feature Coverage (PROJECT.md 20 Features in Isolation)', () =>
   });
 
   // -------------------------------------------------------------------------
-  // Feature 18: Model Quick Bar Presets
+  // Feature 18: Model Quick Bar Selection
   // -------------------------------------------------------------------------
-  describe('F18: Model Quick Bar Presets', async () => {
+  describe('F18: Model Quick Bar Selection', async () => {
     const quickBarSvelte = await readProjectFile('src/components/ai/AiModelQuickBar.svelte');
 
-    it('18.1: includes claude-3-5-sonnet preset for Anthropic', () => {
-      expect(quickBarSvelte).toMatch(/claude-3-5-sonnet/);
+    it('18.1: excludes hard-coded model recommendations', () => {
+      expect(quickBarSvelte).not.toMatch(/POPULAR_PRESETS|quickbar_popular_models/);
     });
 
-    it('18.2: includes gpt-4o-mini preset for OpenAI', () => {
-      expect(quickBarSvelte).toContain('gpt-4o-mini');
+    it('18.2: supports entering a model identifier manually', () => {
+      expect(quickBarSvelte).toContain('bind:value={modelInput}');
     });
 
-    it('18.3: includes gemini-2.0-flash preset for Gemini', () => {
-      expect(quickBarSvelte).toContain('gemini-2.0-flash');
+    it('18.3: supports retrieving models from the selected provider', () => {
+      expect(quickBarSvelte).toContain('aiApi.listModels(selectedProvider, apiKey, endpoint)');
     });
 
     it('18.4: supports rapid provider and model switching', () => {

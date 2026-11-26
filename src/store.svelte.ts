@@ -4,6 +4,7 @@ export const dockerState = $state({
   containers: [] as DockerContainer[],
   images: [] as DockerImage[],
   loading: true,
+  runtimeName: "docker",
   eventCooldownUntil: 0,
 });
 

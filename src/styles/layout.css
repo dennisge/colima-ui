@@ -312,6 +312,41 @@
   color: var(--accent-blue);
 }
 
+/* ===== Light Sidebar ===== */
+:root[data-theme="light"] .sidebar::after,
+:root[data-theme="light"] .nav-item.active::before {
+  display: none;
+}
+
+:root[data-theme="light"] .sidebar-logo {
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="light"] .sidebar-title {
+  background: none;
+  color: var(--text-primary);
+  -webkit-text-fill-color: currentColor;
+}
+
+:root[data-theme="light"] .nav-item:hover {
+  background: var(--surface-hover);
+}
+
+:root[data-theme="light"] .nav-item.active,
+:root[data-theme="light"] .nav-item.active:hover,
+:root[data-theme="light"] .nav-item.active:hover svg {
+  color: var(--text-primary);
+}
+
+:root[data-theme="light"] .nav-item.active,
+:root[data-theme="light"] .nav-item.active:hover {
+  background: var(--surface-selected);
+}
+
+:root[data-theme="light"] .nav-item > * {
+  transform: none;
+}
+
 /* ===== Collapsed Sidebar ===== */
 .sidebar.collapsed {
   width: 64px;
