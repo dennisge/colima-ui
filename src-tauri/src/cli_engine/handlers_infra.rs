@@ -2930,12 +2930,12 @@ pub async fn handle_lima(
                 {
                     HttpOutcome::Ok(v) => v.as_str().unwrap_or_default().to_string(),
                     HttpOutcome::ApiErr(e) => return Err(e),
-                    HttpOutcome::Unavailable(_) => lima::lima_shell(name, command_str)
+                    HttpOutcome::Unavailable(_) => lima::lima_shell(name, command_str, None)
                         .await
                         .map_err(|e| e.to_string())?,
                 }
             } else {
-                lima::lima_shell(name, command_str)
+                lima::lima_shell(name, command_str, None)
                     .await
                     .map_err(|e| e.to_string())?
             };

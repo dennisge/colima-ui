@@ -425,6 +425,7 @@ pub struct LimaDeleteBody {
 pub struct LimaShellBody {
     pub name: String,
     pub command: String,
+    pub workdir: Option<String>,
 }
 
 

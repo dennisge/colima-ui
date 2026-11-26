@@ -186,21 +186,16 @@ pub async fn lima_info(name: String) -> Result<String, crate::error::ColimaError
 
 /// Execute a command inside a Lima VM
 #[tauri::command]
-pub async fn lima_shell(name: String, command: String) -> Result<String, crate::error::ColimaError> {
+pub async fn lima_shell(
+    name: String,
+    command: String,
+    workdir: Option<String>,
+) -> Result<String, crate::error::ColimaError> {
     if !crate::validation::is_valid_resource_name(&name) {
         return Err(crate::error::ColimaError::validation(format!("Invalid name: {:?}", name)));
     }
     crate::helpers::run_blocking(move || {
-        // Security validation (applies to both Tauri IPC and HTTP routes)
-        if !crate::validation::is_valid_k8s_name(&name) {
-            return Err("Invalid VM name".to_string());
-        }
-        if crate::validation::contains_shell_injection(&command) {
-            return Err("Command contains forbidden characters (shell injection blocked)".to_string());
-        }
-
-        let output = limactl_cmd()
-            .args(["shell", &name, "--", "sh", "-c", &command])
+        let output = lima_shell_command(&name, &command, workdir.as_deref())?
             .output()
             .map_err(|e| format!("Failed to execute in Lima: {}", e))?;
 
@@ -215,6 +210,28 @@ pub async fn lima_shell(name: String, command: String) -> Result<String, crate::
     })
     .await
     .map_err(crate::error::ColimaError::from)
+}
+
+fn lima_shell_command(name: &str, command: &str, workdir: Option<&str>) -> Result<Command, String> {
+    if !crate::validation::is_valid_k8s_name(name) {
+        return Err("Invalid VM name".to_string());
+    }
+    if crate::validation::contains_shell_injection(command) {
+        return Err("Command contains forbidden characters (shell injection blocked)".to_string());
+    }
+    if workdir.is_some_and(|directory| {
+        !directory.starts_with('/') || directory.chars().any(char::is_control)
+    }) {
+        return Err("Invalid working directory: expected an absolute VM path".to_string());
+    }
+
+    let mut cmd = limactl_cmd();
+    cmd.arg("shell");
+    if let Some(directory) = workdir {
+        cmd.args(["--workdir", directory]);
+    }
+    cmd.args([name, "--", "sh", "-c", command]);
+    Ok(cmd)
 }
 
 /// List available Lima templates
@@ -290,4 +307,32 @@ pub async fn lima_create(
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::lima_shell_command;
+
+    #[test]
+    fn passes_workdir_separately_from_the_guest_command() {
+        let directory = "/tmp/guest's files/../bin";
+        let cmd = lima_shell_command("test", "pwd", Some(directory)).unwrap();
+        assert!(cmd.get_args().eq([
+            "shell", "--workdir", directory, "test", "--", "sh", "-c", "pwd",
+        ]));
+    }
+
+    #[test]
+    fn omitting_workdir_preserves_existing_arguments() {
+        let cmd = lima_shell_command("test", "ls", None).unwrap();
+        assert!(cmd.get_args().eq(["shell", "test", "--", "sh", "-c", "ls"]));
+    }
+
+    #[test]
+    fn validates_commands_and_workdirs_independently() {
+        assert!(lima_shell_command("test", "pwd && ls", Some("/")).is_err());
+        for directory in ["", "tmp", "/tmp\nother"] {
+            assert!(lima_shell_command("test", "pwd", Some(directory)).is_err());
+        }
+    }
 }

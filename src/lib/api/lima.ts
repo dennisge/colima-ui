@@ -44,8 +44,10 @@ export const limaApi = {
     call<string>("lima_delete", { name, force }, "POST", "/api/lima/delete", undefined, { name, force }),
   info: () =>
     call<string>("lima_info", { name: "" }, "GET", "/api/lima/info"),
-  shell: (name: string, command: string) =>
-    call<string>("lima_shell", { name, command }, "POST", "/api/lima/shell", undefined, { name, command }),
+  shell: (name: string, command: string, workdir?: string) => {
+    const args = { name, command, workdir };
+    return call<string>("lima_shell", args, "POST", "/api/lima/shell", undefined, args);
+  },
   templates: () =>
     call<string>("lima_templates", undefined, "GET", "/api/lima/templates"),
   // Every field is required over IPC — `lima_create` takes plain `u32`/`String`,

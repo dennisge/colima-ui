@@ -2151,7 +2151,7 @@ async fn execute_mutating_event(event: &str, payload: &Value) -> Result<String, 
                 .ok_or_else(|| "Missing 'name' for lima-shell".to_string())?;
             let cmd = str_field(payload, &["command", "cmd"])
                 .ok_or_else(|| "Missing 'command' for lima-shell".to_string())?;
-            lima::lima_shell(name.to_string(), cmd.to_string())
+            lima::lima_shell(name.to_string(), cmd.to_string(), None)
                 .await
                 .map_err(|e| e.to_string())
         }

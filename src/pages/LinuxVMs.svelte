@@ -1,34 +1,45 @@
+<script module lang="ts">
+  import { SvelteMap } from "svelte/reactivity";
+  import type { LimaInstance } from "../lib/api";
+
+  type VMAction = "start" | "stop" | "delete";
+  // A Lima operation can outlive the page that started it.
+  const pendingActions = new SvelteMap<string, VMAction | "create">();
+  let vms = $state<LimaInstance[]>([]);
+  let listRequest = 0;
+</script>
+
 <script lang="ts">
   import { onMount } from "svelte";
-  import { limaApi, type LimaInstance } from "../lib/api";
+  import { limaApi } from "../lib/api";
   import { globalToast } from "../lib/globalToast";
   import { confirm } from "../store/confirm.svelte";
   import { t } from "../lib/i18n.svelte";
   import { setVisibleInterval } from "../lib/visibleInterval";
 
-  let vms = $state<LimaInstance[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let actionLoading = $state<string | null>(null);
   let selectedVM = $state<LimaInstance | null>(null);
   let shellCmd = $state("");
   let shellOutput = $state("");
   let shellCwd = $state("/");
+  let shellRunning = $state(false);
+  let shellSession = 0;
 
   let showCreate = $state(false);
   let templates = $state<string[]>([]);
   let newVM = $state({ name: "", cpus: 2, memory: 2, disk: 60, template: "" });
 
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let stopPoll: (() => void) | null = null;
 
   async function fetchVMs() {
+    const request = ++listRequest;
     try {
       error = null;
       const list = await limaApi.list();
-      vms = list;
+      if (request === listRequest) vms = list;
     } catch (e) {
-      error = String(e);
+      if (request === listRequest) error = String(e);
     } finally {
       loading = false;
     }
@@ -40,7 +51,6 @@
 
     return () => {
       if (stopPoll) stopPoll();
-      if (timeoutId) clearTimeout(timeoutId);
     };
   });
 
@@ -83,49 +93,39 @@
   });
 
   async function handleCreate() {
-    if (!newVM.name.trim()) return;
     const name = newVM.name.trim().toLowerCase();
-    globalToast(
-      "success",
-      `Creating VM '${name}'... This may take a few minutes.`,
-    );
+    if (!name || pendingActions.has(name)) return;
+    const { cpus, memory, disk, template } = newVM;
+    pendingActions.set(name, "create");
+    globalToast("info", `Creating VM '${name}'... This may take a few minutes.`);
     showCreate = false;
     newVM = { name: "", cpus: 2, memory: 2, disk: 60, template: "" };
 
     try {
       await limaApi.create({
         name,
-        cpus: newVM.cpus,
-        memory: newVM.memory,
-        disk: newVM.disk,
-        template: newVM.template || undefined,
+        cpus,
+        memory,
+        disk,
+        template: template || undefined,
       });
       globalToast("success", `VM '${name}' created successfully`);
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(fetchVMs, 2000);
     } catch (e) {
       globalToast("error", `Failed to create VM: ${e}`);
+    } finally {
+      await fetchVMs();
+      pendingActions.delete(name);
     }
   }
 
-  async function handleAction(
-    name: string,
-    action: "start" | "stop" | "delete",
-  ) {
-    actionLoading = `${name}-${action}`;
+  async function handleAction(name: string, action: VMAction) {
+    if (pendingActions.has(name)) return;
+    pendingActions.set(name, action);
     try {
       if (action === "start") {
-        globalToast("success", `Starting VM '${name}'...`);
-        limaApi
-          .start(name)
-          .then(() => {
-            globalToast("success", `VM '${name}' started`);
-            if (timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(fetchVMs, 1000);
-          })
-          .catch((e) => globalToast("error", String(e)))
-          .finally(() => (actionLoading = null));
-        return;
+        globalToast("info", `Starting VM '${name}'...`);
+        await limaApi.start(name);
+        globalToast("success", `VM '${name}' started`);
       } else if (action === "stop") {
         await limaApi.stop(name);
         globalToast("success", `VM '${name}' stopped`);
@@ -136,60 +136,60 @@
           confirmText: "Delete",
           variant: "danger",
         });
-        if (!ok) {
-          actionLoading = null;
-          return;
-        }
+        if (!ok) return;
         await limaApi.delete(name, true);
         globalToast("success", `VM '${name}' deleted`);
       }
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(fetchVMs, 1000);
+      await fetchVMs();
     } catch (e) {
       globalToast("error", String(e));
     } finally {
-      actionLoading = null;
+      pendingActions.delete(name);
     }
   }
 
   async function runShell() {
-    if (!selectedVM || !shellCmd.trim()) return;
     const cmd = shellCmd.trim();
-
-    if (cmd === "cd" || cmd === "cd ~" || cmd === "cd ~/") {
-      shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\n`;
-      shellCwd = "/";
-      shellCmd = "";
-      return;
-    }
-    if (cmd.startsWith("cd ")) {
-      const target = cmd.slice(3).trim();
-      try {
-        const cwdCmd = `cd ${shellCwd} && cd ${target} && pwd`;
-        const newPath = await limaApi.shell(selectedVM.name, cwdCmd);
-        const resolved = newPath.trim();
-        if (resolved) {
-          shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\n`;
-          shellCwd = resolved;
-        } else {
-          shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\ncd: no such directory: ${target}\n`;
-        }
-      } catch (e) {
-        shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\n${e}\n`;
-      }
-      shellCmd = "";
-      return;
-    }
-
-    const fullCmd = `cd ${shellCwd} && ${cmd}`;
+    if (!selectedVM || shellRunning || !cmd) return;
+    const { name } = selectedVM;
+    const session = shellSession;
+    shellRunning = true;
+    shellOutput += `${name}:${shellCwd}$ ${cmd}\n`;
+    shellCmd = "";
     try {
-      const output = await limaApi.shell(selectedVM.name, fullCmd);
-      shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\n${output}\n`;
-      shellCmd = "";
+      const cd = /^cd(?:[ \t]+(.+))?$/.exec(cmd);
+      if (cd) {
+        const target = cd[1] ?? "~";
+        let directory = target.replace(/^(['"])(.*)\1$/, "$2");
+        if (target === "~" || target.startsWith("~/")) {
+          const home = parseShellDirectory(await limaApi.shell(name, "printenv HOME", "/"));
+          if (session !== shellSession || !selectedVM) return;
+          directory = home + target.slice(1);
+        }
+        if (!directory.startsWith("/")) {
+          directory = `${shellCwd.replace(/\/$/, "")}/${directory}`;
+        }
+        const resolved = parseShellDirectory(await limaApi.shell(name, "pwd -P", directory));
+        if (session === shellSession) shellCwd = resolved;
+      } else {
+        const output = await limaApi.shell(name, cmd, shellCwd);
+        if (session === shellSession && output) {
+          shellOutput += output.endsWith("\n") ? output : output + "\n";
+        }
+      }
     } catch (e) {
-      shellOutput += `${selectedVM.name}:${shellCwd}$ ${cmd}\nError: ${e}\n`;
-      shellCmd = "";
+      if (session === shellSession) shellOutput += `${String(e)}\n`;
+    } finally {
+      if (session === shellSession) shellRunning = false;
     }
+  }
+
+  function parseShellDirectory(output: string) {
+    const directory = output.replace(/\r?\n$/, "");
+    if (!directory.startsWith("/") || directory.includes("\n") || directory.includes("\r")) {
+      throw new Error("Could not determine the VM's working directory");
+    }
+    return directory;
   }
 
   function statusColor(status: string) {
@@ -269,13 +269,18 @@
     {#if vms.length > 0}
       <div style="display: flex; flex-direction: column; gap: 8px;">
         {#each vms as vm (vm.name)}
-          {@const isLoading = actionLoading?.startsWith(vm.name)}
+          {@const action = pendingActions.get(vm.name)}
+          {@const isLoading = action !== undefined}
+          {@const status = action === "create" || action === "start" ? "Starting…" : vm.status}
           {@const isRunning = vm.status === "Running"}
           <div
             onclick={() => {
+              shellSession += 1;
               selectedVM = vm;
+              shellCmd = "";
               shellOutput = "";
               shellCwd = "/";
+              shellRunning = false;
             }}
             style="padding: 16px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-primary); cursor: pointer; opacity: {isLoading
               ? 0.6
@@ -308,18 +313,18 @@
                   >
                   <span
                     style="color: {statusColor(
-                      vm.status,
+                      status,
                     )}; font-weight: 500; font-size: var(--text-xs);"
                   >
                     <svg
                       width="8"
                       height="8"
                       viewBox="0 0 24 24"
-                      fill={statusColor(vm.status)}
+                      fill={statusColor(status)}
                       style="display: inline-block; vertical-align: middle; margin-right: 2px;"
                       ><circle cx="12" cy="12" r="10" /></svg
                     >
-                    {vm.status}
+                    {status}
                   </span>
                 </div>
                 <div
@@ -537,7 +542,7 @@
                 class="input"
                 style="flex: 1; font-family: var(--font-mono);"
               />
-              <button class="btn btn-primary" onclick={runShell}>Run</button>
+              <button class="btn btn-primary" onclick={runShell} disabled={shellRunning}>Run</button>
             </div>
           {/if}
         </div>
@@ -684,7 +689,7 @@
           <button
             class="btn btn-primary"
             onclick={handleCreate}
-            disabled={!newVM.name.trim()}>Create & Start</button
+            disabled={!newVM.name.trim() || pendingActions.has(newVM.name.trim().toLowerCase())}>Create & Start</button
           >
         </div>
       </div>

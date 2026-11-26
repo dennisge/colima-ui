@@ -52,7 +52,7 @@ pub async fn api_lima_shell(
     Json(body): Json<LimaShellBody>,
 ) -> (StatusCode, Json<ApiResponse<String>>) {
     // Security validation now happens inside command function
-    match lima::lima_shell(body.name, body.command).await {
+    match lima::lima_shell(body.name, body.command, body.workdir).await {
         Ok(out) => ok(out),
         Err(e) => err(e.to_string()),
     }
